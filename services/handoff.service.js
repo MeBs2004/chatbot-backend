@@ -1,5 +1,8 @@
-const handoffKeywords = [
+// ======================================================
+// HUMAN HANDOFF KEYWORDS
+// ======================================================
 
+const handoffKeywords = new Set([
   // Human
   "human",
   "real human",
@@ -87,16 +90,36 @@ const handoffKeywords = [
   "किसी से बात करनी है",
   "टीम से बात करनी है",
   "मानव",
-  "सहायता चाहिए"
+  "सहायता चाहिए",
+]);
 
-];
+// ======================================================
+// NORMALIZE MESSAGE
+// ======================================================
 
-export const needsHumanHandoff = (message) => {
+const normalize = (text = "") =>
+  text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 
-  const msg = message.toLowerCase();
+// ======================================================
+// CHECK IF HUMAN HANDOFF IS NEEDED
+// ======================================================
 
-  return handoffKeywords.some(keyword =>
-    msg.includes(keyword.toLowerCase())
-  );
+export const needsHumanHandoff = (message = "") => {
+  if (!message || typeof message !== "string") {
+    return false;
+  }
 
+  const normalizedMessage = normalize(message);
+
+  for (const keyword of handoffKeywords) {
+    if (normalizedMessage.includes(normalize(keyword))) {
+      return true;
+    }
+  }
+
+  return false;
 };

@@ -1,11 +1,11 @@
 import express from "express";
-import { getSuggestions } from "../controllers/suggestion.controller.js";
+import { getCompany } from "../controllers/company.controller.js";
 
 const router = express.Router();
 
 // ==========================
-// Get Chat Suggestions
+// Get Company Configuration
 // ==========================
-router.get("/", getSuggestions);
+router.get("/", getCompany);
 
 export default router;

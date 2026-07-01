@@ -5,134 +5,197 @@ import Groq from "groq-sdk";
 import fs from "fs";
 import path from "path";
 
-// ==========================================
-// LOAD KNOWLEDGE BASE
-// ==========================================
-
-const knowledgePath = path.join(process.cwd(), "knowledge.txt");
-
-let knowledge = "";
-
-try {
-
-  knowledge = fs.readFileSync(
-    knowledgePath,
-    "utf8"
-  );
-
-  console.log("knowledge.txt loaded successfully");
-
-} catch (error) {
-
-  console.log(
-    "Error loading knowledge.txt:",
-    error.message
-  );
-}
-
-// ==========================================
-// MULTIPLE API KEYS
-// ==========================================
+// ===================================================
+// GROQ API KEYS
+// ===================================================
 
 const apiKeys = [
-
   process.env.GROQ_API_KEY_1,
   process.env.GROQ_API_KEY_2,
   process.env.GROQ_API_KEY_3,
   process.env.GROQ_API_KEY_4,
-
+  process.env.GROQ_API_KEY_5,
 ].filter(Boolean);
 
-// ==========================================
-// FUNCTION
-// ==========================================
+// ===================================================
+// KNOWLEDGE CACHE
+// ===================================================
 
-export const askGroq = async (
-  userMessage,
-  language = "English"
-) => {
+const knowledgeCache = new Map();
 
-  // Try all keys one by one
-  for (const key of apiKeys) {
+const loadKnowledge = (knowledgeFile) => {
+  if (!knowledgeFile) return "";
 
-    try {
+  if (knowledgeCache.has(knowledgeFile)) {
+    return knowledgeCache.get(knowledgeFile);
+  }
 
-      const groq = new Groq({
-        apiKey: key,
-      });
+  try {
+    const filePath = path.resolve(process.cwd(), knowledgeFile);
 
-      const completion =
-        await groq.chat.completions.create({
+    const knowledge = fs.readFileSync(filePath, "utf8");
 
-          model: "llama-3.1-8b-instant",
+    knowledgeCache.set(knowledgeFile, knowledge);
 
-          temperature: 0.3,
+    console.log(`✅ Knowledge Loaded -> ${knowledgeFile}`);
 
-          max_tokens: 500,
+    return knowledge;
+  } catch (err) {
+    console.error(`Knowledge File Error: ${err.message}`);
+    return "";
+  }
+};
 
-          messages: [
+// ===================================================
+// ASK GROQ
+// ===================================================
 
-            {
-              role: "system",
+export const askGroq = async ({
+  company,
+  message,
+  language = "English",
+}) => {
+  try {
+    if (!company) {
+      return "⚠️ Company configuration not found.";
+    }
 
-              content: `
+    if (!message?.trim()) {
+      return "⚠️ Please enter a valid message.";
+    }
 
-You are the official AI assistant of Nuform Social Pvt. Ltd.
+    const knowledge = loadKnowledge(company.knowledgeFile);
 
-IMPORTANT:
-Only answer questions related to:
-- Nuform Social
-- Digital Marketing
-- SEO
-- Websites
-- Branding
-- Mobile Apps
-- Performance Marketing
-- Social Media
-- Business Growth
+    const systemPrompt =
+      company.ai?.systemPrompt ||
+      `You are the official AI assistant of ${company.name}.`;
 
-If user asks unrelated questions reply EXACTLY:
+    const model =
+      company.ai?.model || "llama-3.1-8b-instant";
 
-⚠️ I am the Nuform Social AI Assistant and can only help with business, marketing, branding, websites, SEO, apps, and digital growth related questions.
+    const temperature =
+      company.ai?.temperature ?? 0.3;
 
-Company Knowledge:
+    const maxTokens =
+      company.ai?.maxTokens ?? 500;
+
+    for (const key of apiKeys) {
+      try {
+        const groq = new Groq({
+          apiKey: key,
+        });
+
+        const completion =
+          await groq.chat.completions.create({
+            model,
+            temperature,
+            max_tokens: maxTokens,
+
+            messages: [
+              {
+                role: "system",
+                content: `
+${systemPrompt}
+
+====================================
+COMPANY DETAILS
+====================================
+
+Company:
+${company.name}
+
+Website:
+${company.website || company.domain}
+
+Phone:
+${company.contact?.phone || "Not Available"}
+
+WhatsApp:
+${company.contact?.whatsapp || "Not Available"}
+
+Email:
+${company.contact?.email || "Not Available"}
+
+Address:
+${company.contact?.address || "Not Available"}
+
+====================================
+STRICT RULES
+====================================
+
+You ONLY answer questions related to:
+
+• ${company.name}
+• Company
+• Services
+• Products
+• Pricing (only if available)
+• Support
+• Contact Information
+• Policies
+
+If the question is unrelated, reply ONLY:
+
+⚠️ I am the official AI assistant of ${company.name} and can only answer questions related to this company.
+
+Never invent:
+
+• Prices
+• Discounts
+• Products
+• Services
+• Contact details
+• Policies
+
+If information is unavailable, politely ask the user to contact the company.
+
+====================================
+KNOWLEDGE BASE
+====================================
 
 ${knowledge}
 
-Response Style:
-- Professional
-- Modern
-- Human-like
-- Short paragraphs
-- Bullet points
-- Clean formatting
+====================================
+RESPONSE STYLE
+====================================
 
-Reply language:
+• Friendly
+• Professional
+• Human-like
+• Short paragraphs
+• Markdown supported
+• Use headings when needed
+• Use bullet points when useful
+
+Always reply in:
+
 ${language}
+`,
+              },
+              {
+                role: "user",
+                content: message,
+              },
+            ],
+          });
 
-`
-            },
+        const reply =
+          completion?.choices?.[0]?.message?.content;
 
-            {
-              role: "user",
-              content: userMessage
-            }
-
-          ]
-
-        });
-
-      return completion.choices[0].message.content;
-
-    } catch (error) {
-
-      console.log("Groq Key Failed... Trying Next Key");
-
-      // Try next key automatically
-      continue;
+        if (reply) {
+          return reply.trim();
+        }
+      } catch (err) {
+        console.warn(
+          "⚠️ Groq API key failed. Trying next key..."
+        );
+      }
     }
-  }
 
-  // If all keys fail
-  return "⚠️ Assistant is temporarily unavailable. Please try again later.";
+    return "⚠️ Assistant is temporarily unavailable. Please try again later.";
+  } catch (error) {
+    console.error("Groq Service Error:", error);
+
+    return "⚠️ Something went wrong while processing your request.";
+  }
 };

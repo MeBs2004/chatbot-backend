@@ -1,33 +1,41 @@
 import mongoose from "mongoose";
 
 const userSchema = new mongoose.Schema(
-{
-  visitorId: {
-    type: String,
-    required: true,
-  },
+  {
+    companyId: {
+      type: String,
+      required: true,
+      trim: true,
+      index: true,
+    },
 
-  sender: {
-    type: String,
-    required: true,
-    enum: ["user"],
-  },
+    visitorId: {
+      type: String,
+      required: true,
+      trim: true,
+      index: true,
+    },
 
-  text: {
-    type: String,
-    required: true,
-  },
+    sender: {
+      type: String,
+      enum: ["user"],
+      default: "user",
+    },
 
-  timestamp: {
-    type: Date,
-    default: Date.now,
+    text: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    timestamp: {
+      type: Date,
+      default: Date.now,
+    },
   },
-},
-{
-  timestamps: true,
-}
+  {
+    timestamps: true,
+  }
 );
 
-const User = mongoose.model("User", userSchema);
-
-export default User;
+export default mongoose.model("User", userSchema);

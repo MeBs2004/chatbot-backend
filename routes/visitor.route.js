@@ -8,17 +8,19 @@ import {
 
 const router = express.Router();
 
-
-// Save Visitor
+// ==========================
+// Visitor Tracking
+// ==========================
 router.post("/", saveVisitor);
 
-
-// Save Email
+// ==========================
+// Save Visitor Email
+// ==========================
 router.post("/email", saveEmail);
 
-
-// Save Name
+// ==========================
+// Save Visitor Name
+// ==========================
 router.post("/name", updateVisitorName);
-
 
 export default router;

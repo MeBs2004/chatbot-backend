@@ -5,143 +5,156 @@ import Visitor from "../models/visitor.model.js";
 import { askGroq } from "../services/groq.service.js";
 import { needsHumanHandoff } from "../services/handoff.service.js";
 
+import axios from "axios";
+
 export const Message = async (req, res) => {
-
   try {
+    const { text, language = "English", visitorId } = req.body;
 
-    const { text, language, visitorId } = req.body;
+    const company = req.company;
 
-    // Empty input check
-    if (!text?.trim()) {
-
-      return res.status(400).json({
+    if (!company) {
+      return res.status(404).json({
         success: false,
-        error: "Text cannot be empty",
+        message: "Company not found.",
       });
-
     }
 
-    // Update Visitor Information
+    const companyId = company.companyId;
+
+    if (!text || !text.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "Message cannot be empty.",
+      });
+    }
+
+    // =========================
+    // Visitor Analytics
+    // =========================
+
     if (visitorId) {
-
       await Visitor.findOneAndUpdate(
-
-        { visitorId },
-
+        {
+          companyId,
+          visitorId,
+        },
         {
           $inc: {
             totalMessages: 1,
           },
-
           $set: {
             lastVisit: new Date(),
             lastMessage: text,
             status: "online",
           },
-
+        },
+        {
+          new: true,
         }
-
       );
-
     }
 
+    // =========================
+    // Save User Message
+    // =========================
+
+    const userMessage = await User.create({
+      companyId,
+      visitorId,
+      sender: "user",
+      text,
+    });
+
+    // =========================
     // Human Handoff
+    // =========================
+
     if (needsHumanHandoff(text)) {
+      const handoffMessage = `Sure! Our team will be happy to assist you.
 
-      // Save user message
-      await User.create({
-        visitorId,
-        sender: "user",
-        text,
-      });
-
-      // Save bot message
-      await Bot.create({
-        visitorId,
-        text: `
-Sure! Our team will be happy to assist you.
-
-📞 Call: +91-9902421936
+📞 Call:
+${company.contact?.phone || "Not Available"}
 
 💬 WhatsApp:
-https://wa.me/919902421936
+${company.contact?.whatsapp || "Not Available"}
 
 📧 Email:
-info@nuformsocial.com
-        `,
+${company.contact?.email || "Not Available"}
+`;
+
+      await Bot.create({
+        companyId,
+        visitorId,
+        text: handoffMessage,
       });
 
       return res.status(200).json({
         success: true,
-
-        botMessage: `
-Sure! Our team will be happy to assist you.
-
-📞 Call: +91-9902421936
-
-💬 WhatsApp:
-https://wa.me/919902421936
-
-📧 Email:
-info@nuformsocial.com
-        `,
+        userMessage: userMessage.text,
+        botMessage: handoffMessage,
       });
-
     }
 
-    // Save User Message
-    const user = await User.create({
+    // =========================
+    // Company Webhook
+    // =========================
 
+    if (company.ai?.webhookUrl) {
+      try {
+        const webhook = await axios.post(company.ai.webhookUrl, {
+          companyId,
+          visitorId,
+          message: text,
+          language,
+        });
+
+        if (webhook.data?.reply) {
+          await Bot.create({
+            companyId,
+            visitorId,
+            text: webhook.data.reply,
+          });
+
+          return res.status(200).json({
+            success: true,
+            userMessage: userMessage.text,
+            botMessage: webhook.data.reply,
+          });
+        }
+      } catch (err) {
+        console.log("Webhook failed. Falling back to Groq...");
+      }
+    }
+
+    // =========================
+    // Groq AI
+    // =========================
+
+    const aiReply = await askGroq({
+  company,
+  message: text,
+  language,
+});
+
+    await Bot.create({
+      companyId,
       visitorId,
-
-      sender: "user",
-
-      text,
-
-    });
-
-    // AI Response
-    const botResponse = await askGroq(
-      text,
-      language
-    );
-
-    // Save Bot Message
-    const bot = await Bot.create({
-
-      visitorId,
-
-      text: botResponse,
-
+      text: aiReply,
     });
 
     return res.status(200).json({
-
       success: true,
-
-      userMessage: user.text,
-
-      botMessage: bot.text,
-
+      userMessage: userMessage.text,
+      botMessage: aiReply,
     });
-
-  }
-
-  catch (error) {
-
-    console.error(
-      "Error in Message Controller:",
-      error
-    );
+  } catch (error) {
+    console.error("Message Controller Error:", error);
 
     return res.status(500).json({
-
       success: false,
-
-      error: "Internal Server Error",
-
+      message: "Internal Server Error",
+      error: error.message,
     });
-
   }
-
 };

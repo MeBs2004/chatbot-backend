@@ -2,90 +2,144 @@ import express from "express";
 import dotenv from "dotenv";
 import mongoose from "mongoose";
 
+import companyRoutes from "./routes/company.route.js";
 import chatbotRoutes from "./routes/chatbot.route.js";
 import suggestionRoutes from "./routes/suggestion.route.js";
 import visitorRoutes from "./routes/visitor.route.js";
 
-const app = express();
-
-app.set("trust proxy", true);
+import companyMiddleware from "./middleware/company.middleware.js";
 
 dotenv.config();
 
-const port = process.env.PORT || 4002;
+const app = express();
 
+const PORT = process.env.PORT || 4002;
 
-// CORS
+app.set("trust proxy", true);
+
+/* =========================================================
+   CORS
+========================================================= */
+
 app.use((req, res, next) => {
-
   res.header("Access-Control-Allow-Origin", "*");
 
   res.header(
     "Access-Control-Allow-Methods",
-    "GET,POST,PUT,DELETE,OPTIONS"
+    "GET, POST, PUT, DELETE, OPTIONS"
   );
 
   res.header(
     "Access-Control-Allow-Headers",
-    "Content-Type,Authorization"
+    "Content-Type, Authorization, x-company-id"
   );
 
   res.header("Access-Control-Max-Age", "86400");
 
   if (req.method === "OPTIONS") {
-
     return res.sendStatus(200);
-
   }
 
   next();
-
 });
 
+/* =========================================================
+   BODY PARSER
+========================================================= */
 
-// Middleware
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true }));
 
+/* =========================================================
+   DATABASE
+========================================================= */
 
-// MongoDB Connection
-mongoose.connect(process.env.MONGO_URI)
+mongoose
+  .connect(process.env.MONGO_URI)
+  .then(() => {
+    console.log("✅ MongoDB Connected");
+  })
+  .catch((err) => {
+    console.error("❌ MongoDB Connection Failed");
+    console.error(err);
+    process.exit(1);
+  });
 
-.then(() => {
+/* =========================================================
+   HEALTH
+========================================================= */
 
-  console.log("Connected to MongoDB");
-
-})
-
-.catch((error) => {
-
-  console.log("Error connecting to MongoDB:", error);
-
+app.get("/", (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: "Nuformly Backend Running 🚀",
+    status: "OK",
+  });
 });
 
+/* =========================================================
+   ROUTES
+========================================================= */
 
-// Routes
+// Company
+app.use(
+  "/bot/v1/company",
+  companyMiddleware,
+  companyRoutes
+);
 
 // Chatbot
-app.use("/bot/v1", chatbotRoutes);
+app.use(
+  "/bot/v1",
+  companyMiddleware,
+  chatbotRoutes
+);
 
 // Suggestions
-app.use("/bot/v1/suggestions", suggestionRoutes);
+app.use(
+  "/bot/v1/suggestions",
+  companyMiddleware,
+  suggestionRoutes
+);
 
-// Visitor Tracking
-app.use("/bot/v1/visitor", visitorRoutes);
+// Visitor
+app.use(
+  "/bot/v1/visitor",
+  companyMiddleware,
+  visitorRoutes
+);
 
+/* =========================================================
+   404
+========================================================= */
 
-// Health Check
-app.get("/", (req, res) => {
-
-  res.send("Nuform Chatbot Backend Running 🚀");
-
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    message: `Route ${req.originalUrl} not found`,
+  });
 });
 
+/* =========================================================
+   GLOBAL ERROR HANDLER
+========================================================= */
 
-// Start Server
-app.listen(port, () => {
+app.use((err, req, res, next) => {
+  console.error("Global Error:", err);
 
-  console.log(`Server is Running on Port ${port}`);
+  res.status(err.status || 500).json({
+    success: false,
+    message: err.message || "Internal Server Error",
+  });
+});
 
+/* =========================================================
+   START SERVER
+========================================================= */
+
+app.listen(PORT, () => {
+  console.log("====================================");
+  console.log("🚀 Nuformly Server Started");
+  console.log(`🌐 Port : ${PORT}`);
+  console.log("====================================");
 });

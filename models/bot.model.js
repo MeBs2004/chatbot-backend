@@ -1,27 +1,35 @@
 import mongoose from "mongoose";
 
 const botSchema = new mongoose.Schema(
-{
-  visitorId: {
-    type: String,
-    required: true,
-  },
+  {
+    companyId: {
+      type: String,
+      required: true,
+      trim: true,
+      index: true,
+    },
 
-  text: {
-    type: String,
-    required: true,
-  },
+    visitorId: {
+      type: String,
+      required: true,
+      trim: true,
+      index: true,
+    },
 
-  timestamp: {
-    type: Date,
-    default: Date.now,
+    text: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    timestamp: {
+      type: Date,
+      default: Date.now,
+    },
   },
-},
-{
-  timestamps: true,
-}
+  {
+    timestamps: true,
+  }
 );
 
-const Bot = mongoose.model("Bot", botSchema);
-
-export default Bot;
+export default mongoose.model("Bot", botSchema);
