@@ -1,11 +1,13 @@
 import express from "express";
+import upload from "../middleware/upload.middleware.js";
 import { Message } from "../controllers/chatbot.message.js";
 
 const router = express.Router();
 
-// ==========================
-// Chat Message
-// ==========================
-router.post("/message", Message);
+router.post(
+  "/message",
+  upload.single("file"),
+  Message
+);
 
 export default router;

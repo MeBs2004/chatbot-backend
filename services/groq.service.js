@@ -52,15 +52,17 @@ const loadKnowledge = (knowledgeFile) => {
 
 export const askGroq = async ({
   company,
-  message,
+  message = "",
   language = "English",
+  image = null,
 }) => {
   try {
     if (!company) {
       return "⚠️ Company configuration not found.";
     }
 
-    if (!message?.trim()) {
+    // Allow image-only requests
+    if ((!message || !message.trim()) && !image) {
       return "⚠️ Please enter a valid message.";
     }
 
@@ -70,14 +72,12 @@ export const askGroq = async ({
       company.ai?.systemPrompt ||
       `You are the official AI assistant of ${company.name}.`;
 
-    const model =
-      company.ai?.model || "llama-3.1-8b-instant";
-
-    const temperature =
-      company.ai?.temperature ?? 0.3;
-
-    const maxTokens =
-      company.ai?.maxTokens ?? 500;
+    const model = image
+  ? "qwen/qwen3.6-27b"
+  : (company.ai?.model || "llama-3.1-8b-instant");
+  
+    const temperature = company.ai?.temperature ?? 0.3;
+    const maxTokens = company.ai?.maxTokens ?? 500;
 
     for (const key of apiKeys) {
       try {
@@ -85,16 +85,15 @@ export const askGroq = async ({
           apiKey: key,
         });
 
-        const completion =
-          await groq.chat.completions.create({
-            model,
-            temperature,
-            max_tokens: maxTokens,
+        const completion = await groq.chat.completions.create({
+          model,
+          temperature,
+          max_tokens: maxTokens,
 
-            messages: [
-              {
-                role: "system",
-                content: `
+          messages: [
+            {
+              role: "system",
+              content: `
 ${systemPrompt}
 
 ====================================
@@ -129,7 +128,7 @@ You ONLY answer questions related to:
 • Company
 • Services
 • Products
-• Pricing (only if available)
+• Pricing
 • Support
 • Contact Information
 • Policies
@@ -138,16 +137,9 @@ If the question is unrelated, reply ONLY:
 
 ⚠️ I am the official AI assistant of ${company.name} and can only answer questions related to this company.
 
-Never invent:
+If the user uploads an image, analyze it carefully and answer using both the image and the user's message.
 
-• Prices
-• Discounts
-• Products
-• Services
-• Contact details
-• Policies
-
-If information is unavailable, politely ask the user to contact the company.
+Never invent any information.
 
 ====================================
 KNOWLEDGE BASE
@@ -171,24 +163,46 @@ Always reply in:
 
 ${language}
 `,
-              },
-              {
-                role: "user",
-                content: message,
-              },
-            ],
-          });
+            },
 
-        const reply =
-          completion?.choices?.[0]?.message?.content;
+            {
+              role: "user",
+              content: image
+                ? [
+                    {
+                      type: "text",
+                      text: message || "Describe this image.",
+                    },
+                    {
+                      type: "image_url",
+                      image_url: {
+                        url: image,
+                      },
+                    },
+                  ]
+                : message,
+            },
+          ],
+        });
+
+        const reply = completion?.choices?.[0]?.message?.content;
 
         if (reply) {
           return reply.trim();
         }
       } catch (err) {
-        console.warn(
-          "⚠️ Groq API key failed. Trying next key..."
-        );
+        console.log("========================================");
+        console.log("❌ GROQ ERROR");
+        console.log("Status :", err.status);
+        console.log("Message:", err.message);
+
+        if (err.response?.data) {
+          console.log("Response:");
+          console.log(err.response.data);
+        }
+
+        console.log(err);
+        console.log("========================================");
       }
     }
 
