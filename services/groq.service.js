@@ -55,6 +55,7 @@ export const askGroq = async ({
   message = "",
   language = "English",
   image = null,
+  history = [],
 }) => {
   try {
     if (!company) {
@@ -73,11 +74,22 @@ export const askGroq = async ({
       `You are the official AI assistant of ${company.name}.`;
 
     const model = image
-  ? "qwen/qwen3.6-27b"
-  : (company.ai?.model || "llama-3.1-8b-instant");
-  
+      ? "qwen/qwen3.6-27b"
+      : company.ai?.model || "llama-3.1-8b-instant";
+
     const temperature = company.ai?.temperature ?? 0.3;
     const maxTokens = company.ai?.maxTokens ?? 500;
+
+    // ===================================================
+    // CONVERSATION MEMORY
+    // ===================================================
+
+    const conversationHistory = history
+      .slice(-10)
+      .map((msg) => ({
+        role: msg.sender === "user" ? "user" : "assistant",
+        content: msg.text,
+      }));
 
     for (const key of apiKeys) {
       try {
@@ -148,6 +160,20 @@ KNOWLEDGE BASE
 ${knowledge}
 
 ====================================
+CONVERSATION MEMORY
+====================================
+
+Remember the previous conversation and answer naturally.
+If the user asks follow-up questions like:
+
+"What about that?"
+"Explain more."
+"Continue."
+"What did I ask before?"
+
+Use the previous conversation to answer correctly.
+
+====================================
 RESPONSE STYLE
 ====================================
 
@@ -164,6 +190,8 @@ Always reply in:
 ${language}
 `,
             },
+
+            ...conversationHistory,
 
             {
               role: "user",

@@ -94,11 +94,12 @@ ${company.contact?.whatsapp || "Not Available"}
 ${company.contact?.email || "Not Available"}
 `;
 
-      await Bot.create({
-        companyId,
-        visitorId,
-        text: handoffMessage,
-      });
+     await Bot.create({
+  companyId,
+  visitorId,
+  sender: "bot",
+  text: handoffMessage,
+});
 
       return res.status(200).json({
         success: true,
@@ -122,11 +123,11 @@ ${company.contact?.email || "Not Available"}
 
         if (webhook.data?.reply) {
           await Bot.create({
-            companyId,
-            visitorId,
-            text: webhook.data.reply,
-          });
-
+  companyId,
+  visitorId,
+  sender: "bot",
+  text: webhook.data.reply,
+});
           return res.status(200).json({
             success: true,
             userMessage: userMessage.text,
@@ -262,6 +263,10 @@ else {
     // Groq AI
     // =========================
 
+    if (extractedText.length > 15000) {
+  extractedText = extractedText.substring(0, 15000);
+}
+
   let finalMessage = text || "";
 
 if (extractedText) {
@@ -276,30 +281,64 @@ if (!finalMessage.trim() && file) {
   finalMessage = `User uploaded a file named "${file.originalname}". Please analyze it.`;
 }
 
+// =========================
+// Conversation History
+// =========================
+
+// Fetch recent messages
+const userHistory = await User.find({
+  companyId,
+  visitorId,
+})
+  .sort({ createdAt: -1 })
+  .limit(8)
+  .lean();
+
+const botHistory = await Bot.find({
+  companyId,
+  visitorId,
+})
+  .sort({ createdAt: -1 })
+  .limit(8)
+  .lean();
+
+const history = [...userHistory, ...botHistory]
+  .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+  .filter((msg) => String(msg._id) !== String(userMessage._id))
+  .map((msg) => ({
+    sender: msg.sender,
+    text: msg.text,
+  }));
+
+// Ask AI
 const aiReply = await askGroq({
   company,
   message: finalMessage,
   language,
   image: imageBase64,
+  history,
 });
-    await Bot.create({
-      companyId,
-      visitorId,
-      text: aiReply,
-    });
 
-    return res.status(200).json({
-      success: true,
-      userMessage: userMessage.text,
-      botMessage: aiReply,
-    });
-  } catch (error) {
-    console.error("Message Controller Error:", error);
+// Save bot reply
+await Bot.create({
+  companyId,
+  visitorId,
+  sender: "bot",
+  text: aiReply,
+});
 
-    return res.status(500).json({
-      success: false,
-      message: "Internal Server Error",
-      error: error.message,
-    });
-  }
+return res.status(200).json({
+  success: true,
+  userMessage: userMessage.text,
+  botMessage: aiReply,
+});
+} catch (error) {
+  console.error("Message Controller Error:", error);
+
+  return res.status(500).json({
+    success: false,
+    message: "Internal Server Error",
+    error: error.message,
+  });
+}
 };
