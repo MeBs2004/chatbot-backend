@@ -75,7 +75,7 @@ export const askGroq = async ({
 
     const model = image
       ? "qwen/qwen3.6-27b"
-      : company.ai?.model || "llama-3.1-8b-instant";
+      : company.ai?.model || "openai/gpt-oss-20b";
 
     const temperature = company.ai?.temperature ?? 0.3;
     const maxTokens = company.ai?.maxTokens ?? 500;

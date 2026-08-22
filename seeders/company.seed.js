@@ -103,7 +103,7 @@ async function seedDatabase() {
       ai: {
         provider: "groq",
         language: "English",
-        model: "llama-3.1-8b-instant",
+        model: "openai/gpt-oss-20b",
         temperature: 0.3,
         maxTokens: 500,
 
@@ -221,7 +221,7 @@ Never answer unrelated questions.
       ai: {
         provider: "groq",
         language: "English",
-        model: "llama-3.1-8b-instant",
+        model: "openai/gpt-oss-20b",
         temperature: 0.3,
         maxTokens: 500,
 

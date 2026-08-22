@@ -140,7 +140,7 @@ const companySchema = new mongoose.Schema(
 
       model: {
         type: String,
-        default: "llama-3.1-8b-instant",
+        default: "openai/gpt-oss-20b",
       },
 
       temperature: {
