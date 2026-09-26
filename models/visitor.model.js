@@ -173,4 +173,11 @@ visitorSchema.index(
   }
 );
 
+// Phase 9 — supports the analytics "New Visitors" query
+// (Visitor.firstVisit within a date range, scoped to companyId) and
+// the Visitors page's date-range/Active filters and default
+// lastVisit sort, both of which previously ran unindexed.
+visitorSchema.index({ companyId: 1, firstVisit: 1 });
+visitorSchema.index({ companyId: 1, lastVisit: -1 });
+
 export default mongoose.model("Visitor", visitorSchema);

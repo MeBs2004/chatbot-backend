@@ -7,6 +7,13 @@ export const askAI = async ({
   company,
   message,
   language = "English",
+  image = null,
+  history = [],
+  modelOverride = null,
+  temperatureOverride = null,
+  maxTokensOverride = null,
+  extraInstruction = "",
+  chatbotId = null,
 }) => {
   if (!company) {
     throw new Error("Company object is required.");
@@ -20,6 +27,13 @@ export const askAI = async ({
         company,
         message,
         language,
+        image,
+        history,
+        modelOverride,
+        temperatureOverride,
+        maxTokensOverride,
+        extraInstruction,
+        chatbotId,
       });
 
     /*
@@ -50,6 +64,13 @@ export const askAI = async ({
         company,
         message,
         language,
+        image,
+        history,
+        modelOverride,
+        temperatureOverride,
+        maxTokensOverride,
+        extraInstruction,
+        chatbotId,
       });
   }
 };

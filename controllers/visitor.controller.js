@@ -1,5 +1,7 @@
 import Visitor from "../models/visitor.model.js";
 import axios from "axios";
+import { emitDomainEvent } from "../services/realtime/io.js";
+import { EVENTS } from "../services/realtime/events.js";
 
 // ================= SAVE VISITOR =================
 export const saveVisitor = async (req, res) => {
@@ -13,8 +15,15 @@ export const saveVisitor = async (req, res) => {
     let geoData = {};
 
     try {
+      // Phase 14 — this had no timeout at all: a slow/unresponsive
+      // ip-api.com could hang every single visitor-creation request
+      // on this public, high-traffic, unauthenticated endpoint
+      // indefinitely. Geolocation is a non-critical enrichment (the
+      // catch below already treats any failure as "skip it"), so a
+      // short bound is correct here, not a compromise.
       const response = await axios.get(
-        `http://ip-api.com/json/${ip}`
+        `http://ip-api.com/json/${encodeURIComponent(ip)}`,
+        { timeout: 3000 }
       );
 
       geoData = {
@@ -53,6 +62,11 @@ export const saveVisitor = async (req, res) => {
 
       await existingVisitor.save();
 
+      emitDomainEvent(EVENTS.VISITOR_UPDATED, {
+        companyId,
+        payload: { visitorId: existingVisitor.visitorId, changedFields: ["lastVisit", "page", "status", "totalVisits"] },
+      });
+
       return res.status(200).json({
         success: true,
         message: "Visitor updated",
@@ -72,6 +86,11 @@ export const saveVisitor = async (req, res) => {
       status: "online",
       totalVisits: 1,
       totalMessages: 0,
+    });
+
+    emitDomainEvent(EVENTS.VISITOR_CREATED, {
+      companyId,
+      payload: { visitorId: visitor.visitorId },
     });
 
     return res.status(200).json({

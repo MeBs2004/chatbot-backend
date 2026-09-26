@@ -157,6 +157,35 @@ const companySchema = new mongoose.Schema(
         type: String,
         default: "",
       },
+
+      // Phase 7 — additive. A pre-existing Company document simply
+      // lacks these fields (`.lean()` reads never backfill Mongoose
+      // defaults onto an already-stored document, same gotcha as
+      // Chatbot.config in Phase 4) — services/groq.service.js treats
+      // an absent `responseStyle`/`fallbackMessage` as "use the
+      // original, unconditional prompt text", so an existing company
+      // that has never opened AI Settings sees zero behavior change.
+      responseStyle: {
+        length: {
+          type: String,
+          enum: ["concise", "balanced", "detailed"],
+          default: "balanced",
+        },
+        tone: {
+          type: String,
+          enum: ["professional", "friendly", "formal", "custom"],
+          default: "professional",
+        },
+        customTone: { type: String, default: "", maxlength: 100 },
+        useEmojis: { type: Boolean, default: true },
+        useMarkdown: { type: Boolean, default: true },
+      },
+
+      fallbackMessage: {
+        type: String,
+        default: "",
+        maxlength: 500,
+      },
     },
 
     // ==========================
@@ -174,10 +203,26 @@ const companySchema = new mongoose.Schema(
         default: "",
       },
 
-      secret: {
+      // Phase 10: replaces the old plaintext `secret` field (no real
+      // company ever had one set — confirmed live before this
+      // change, so this is a clean cut, not a migration). Holds the
+      // output of utils/encryption.js's encryptSecret() — never the
+      // raw secret. Only ever decrypted server-side, in
+      // webhookDispatch.service.js, to sign outbound requests; never
+      // returned by any API response (see company.controller.js,
+      // which projects `webhook.hasSecret` instead).
+      secretEncrypted: {
         type: String,
-        default: "",
+        default: null,
       },
+
+      // Phase 10: real, truthful health indicators (Section 32) —
+      // only ever set by an actual test/delivery attempt, never
+      // defaulted to a "healthy"-looking value.
+      lastTestedAt: { type: Date, default: null },
+      lastConnectedAt: { type: Date, default: null },
+      lastErrorAt: { type: Date, default: null },
+      lastError: { type: String, default: null },
     },
 
     // ==========================
@@ -187,6 +232,50 @@ const companySchema = new mongoose.Schema(
     isActive: {
       type: Boolean,
       default: true,
+    },
+
+    // Richer status used by the admin panel; isActive above
+    // remains the source of truth the public tenant middleware
+    // checks, kept in sync whenever status changes.
+    status: {
+      type: String,
+      enum: ["ACTIVE", "INACTIVE", "SUSPENDED", "TRIAL"],
+      default: "ACTIVE",
+      index: true,
+    },
+
+    // ==========================
+    // Plan / Billing (future)
+    // ==========================
+
+    plan: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "AdminUser",
+      default: null,
+    },
+
+    // ==========================
+    // Developer Platform (Phase 12)
+    // ==========================
+
+    developer: {
+      // Requests/minute per API key for this company. In-memory,
+      // single-process enforcement (see
+      // middleware/apiKeyAuth.middleware.js) — bounded so a company
+      // admin can't accidentally set something that defeats the
+      // point of having a limit, or that's unenforceable.
+      rateLimitPerMinute: {
+        type: Number,
+        default: 100,
+        min: 10,
+        max: 1000,
+      },
     },
   },
   {
