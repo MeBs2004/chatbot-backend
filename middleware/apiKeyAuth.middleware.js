@@ -16,7 +16,7 @@ import { sendError } from "../utils/apiResponse.js";
 // scopes) comes from the verified ApiKey record — NEVER from the
 // request body/query/params (Section 10, 33). Route handlers must
 // use req.apiKeyContext.company.companyId, not anything the caller
-// supplied.
+// supplies.
 // ======================================================
 
 function recordUsage(req, res, apiKeyId, companyId) {
