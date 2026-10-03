@@ -12,6 +12,39 @@ export const saveVisitor = async (req, res) => {
       req.headers["x-forwarded-for"]?.split(",")[0] ||
       req.socket.remoteAddress;
 
+    const existingVisitor = await Visitor.findOne({
+      companyId,
+      visitorId: req.body.visitorId,
+    });
+
+    // Live View heartbeat — the widget now calls this endpoint every
+    // ~25s (not just once per page load) to keep `lastVisit` fresh for
+    // the admin Live View feature, reusing this exact endpoint rather
+    // than adding a new one. A repeat geo lookup on every heartbeat
+    // would (a) hammer ip-api.com's free-tier rate limit for data that
+    // never changes mid-session and (b) add avoidable latency to a
+    // call that now happens far more often — so it only ever runs once,
+    // for a visitor this company has genuinely never seen before.
+    if (existingVisitor) {
+      existingVisitor.lastVisit = new Date();
+      existingVisitor.page = req.body.page;
+      existingVisitor.status = "online";
+      existingVisitor.totalVisits += 1;
+
+      await existingVisitor.save();
+
+      emitDomainEvent(EVENTS.VISITOR_UPDATED, {
+        companyId,
+        payload: { visitorId: existingVisitor.visitorId, changedFields: ["lastVisit", "page", "status", "totalVisits"] },
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: "Visitor updated",
+        visitor: existingVisitor,
+      });
+    }
+
     let geoData = {};
 
     try {
@@ -38,40 +71,6 @@ export const saveVisitor = async (req, res) => {
       };
     } catch (error) {
       console.log("Geo IP lookup failed");
-    }
-
-    const existingVisitor = await Visitor.findOne({
-      companyId,
-      visitorId: req.body.visitorId,
-    });
-
-    if (existingVisitor) {
-      existingVisitor.lastVisit = new Date();
-      existingVisitor.page = req.body.page;
-      existingVisitor.status = "online";
-      existingVisitor.totalVisits += 1;
-
-      existingVisitor.ip = geoData.ip;
-      existingVisitor.country = geoData.country;
-      existingVisitor.region = geoData.region;
-      existingVisitor.city = geoData.city;
-      existingVisitor.timezone = geoData.timezone;
-      existingVisitor.isp = geoData.isp;
-      existingVisitor.lat = geoData.lat;
-      existingVisitor.lon = geoData.lon;
-
-      await existingVisitor.save();
-
-      emitDomainEvent(EVENTS.VISITOR_UPDATED, {
-        companyId,
-        payload: { visitorId: existingVisitor.visitorId, changedFields: ["lastVisit", "page", "status", "totalVisits"] },
-      });
-
-      return res.status(200).json({
-        success: true,
-        message: "Visitor updated",
-        visitor: existingVisitor,
-      });
     }
 
     const visitor = await Visitor.create({
