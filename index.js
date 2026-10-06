@@ -53,7 +53,14 @@ const app = express();
 
 const PORT = process.env.PORT || 4002;
 
-app.set("trust proxy", true);
+// `true` trusts an unlimited chain of proxies and lets a client forge
+// its own X-Forwarded-For to spoof req.ip, defeating IP-based rate
+// limiting entirely (express-rate-limit now refuses to run under that
+// setting — see ERR_ERL_PERMISSIVE_TRUST_PROXY). This deployment sits
+// behind exactly one reverse proxy hop (Render), so `1` is the
+// correct, narrow value: trust the single hop closest to us, nothing
+// beyond it.
+app.set("trust proxy", 1);
 
 /* =========================================================
    REQUEST CORRELATION (Phase 19)

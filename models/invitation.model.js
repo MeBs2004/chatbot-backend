@@ -26,25 +26,25 @@ const invitationSchema = new mongoose.Schema(
       trim: true,
     },
 
+    // Either a system company-scoped role key (COMPANY_ADMIN/AGENT/
+    // VIEWER/DEVELOPER) or a custom Role's _id (as a string) —
+    // validated at write time via role.service.js's
+    // isValidRoleForCompany, not by a schema enum. Never SUPER_ADMIN —
+    // an invitation can never grant platform-level access, matching
+    // createUser's own "Company Admin can never create/grant Super
+    // Admin" rule (enforced in the controller, not here).
     role: {
       type: String,
-      enum: ["COMPANY_ADMIN", "AGENT", "VIEWER", "DEVELOPER"],
       required: true,
     },
 
     // Which companies (and with what per-company role) the invitee
-    // joins on acceptance. Never SUPER_ADMIN — an invitation can
-    // never grant platform-level access, matching createUser's own
-    // "Company Admin can never create/grant Super Admin" rule.
+    // joins on acceptance.
     companyAccess: {
       type: [
         {
           companyId: { type: String, required: true, trim: true },
-          role: {
-            type: String,
-            enum: ["COMPANY_ADMIN", "AGENT", "VIEWER", "DEVELOPER"],
-            required: true,
-          },
+          role: { type: String, required: true },
           _id: false,
         },
       ],

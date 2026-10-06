@@ -77,6 +77,12 @@ export const EVENTS = {
   DEVELOPER_API_KEY_CREATED: "developer.apiKey.created",
   DEVELOPER_API_KEY_REVOKED: "developer.apiKey.revoked",
   DEVELOPER_WEBHOOK_UPDATED: "developer.webhook.updated",
+
+  // WIRED — backend/services/admin/task.service.js
+  TASK_CREATED: "task.created",
+  TASK_UPDATED: "task.updated",
+  TASK_ASSIGNED: "task.assigned",
+  TASK_DELETED: "task.deleted",
 };
 
 // Event types safe to relay, in a whitelisted form, to the

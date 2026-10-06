@@ -10,10 +10,13 @@ import { logAction } from "../../services/admin/audit.service.js";
 import { assertMemberQuota, QuotaExceededError } from "../../services/billing/quota.service.js";
 import { emitDomainEvent, disconnectUserSockets } from "../../services/realtime/io.js";
 import { EVENTS } from "../../services/realtime/events.js";
+import { unassignTasks } from "../../services/admin/task.service.js";
+import { isValidRoleForCompany } from "../../services/admin/role.service.js";
+import { PERMISSIONS, resolveEffectivePermissions, resolveRolePermissions } from "../../services/admin/permissions.service.js";
+import Role from "../../models/role.model.js";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const ROLES = ["SUPER_ADMIN", "COMPANY_ADMIN", "AGENT", "VIEWER", "DEVELOPER"];
-const COMPANY_ROLES = ["COMPANY_ADMIN", "AGENT", "VIEWER", "DEVELOPER"];
 
 // ======================================================
 // Phase 11 — team-management helpers shared by every mutation below.
@@ -99,17 +102,30 @@ export const listUsers = async (req, res) => {
     const requester = req.adminUser;
     const page = Math.max(parseInt(req.query.page) || 1, 1);
     const limit = Math.min(parseInt(req.query.limit) || 20, 100);
-    const { search, role, status } = req.query;
+    const { search, role, status, companyId } = req.query;
 
     const filter = {};
+    const andClauses = [];
     if (role) filter.role = role;
     if (status) filter.status = status;
     if (search) {
-      filter.$or = [
-        { name: { $regex: search, $options: "i" } },
-        { email: { $regex: search, $options: "i" } },
-      ];
+      andClauses.push({
+        $or: [
+          { name: { $regex: search, $options: "i" } },
+          { email: { $regex: search, $options: "i" } },
+        ],
+      });
     }
+
+    // Used by assignee pickers (e.g. tasks) that need "who has access
+    // to THIS company" rather than every teammate the requester can see.
+    if (companyId) {
+      const companyUserIds = (
+        await UserCompanyAccess.find({ companyId, status: "ACTIVE" }).select("userId").lean()
+      ).map((r) => String(r.userId));
+      andClauses.push({ $or: [{ _id: { $in: companyUserIds } }, { role: "SUPER_ADMIN" }] });
+    }
+    if (andClauses.length > 0) filter.$and = andClauses;
 
     // Non-super-admins only see teammates who share at least
     // one company access with them, plus themselves — and only the
@@ -399,7 +415,7 @@ export const createUser = async (req, res) => {
         }
 
         const entryRole = (typeof entry === "object" && entry.role) || role;
-        if (!COMPANY_ROLES.includes(entryRole)) {
+        if (!(await isValidRoleForCompany(entryRole, companyId))) {
           return res.status(400).json({
             success: false,
             message: `Invalid company role "${entryRole}".`,
@@ -690,6 +706,7 @@ export const setUserStatus = async (req, res) => {
 
     if (status !== "ACTIVE") {
       await unassignConversations(user._id);
+      await unassignTasks(user._id);
       // See services/realtime/io.js — REST access was already cut by
       // the status write above (adminAuthMiddleware re-checks it on
       // every request); this only drops an already-open realtime
@@ -730,18 +747,18 @@ export const setCompanyAccess = async (req, res) => {
       });
     }
 
-    if (!COMPANY_ROLES.includes(role)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid role.",
-      });
-    }
-
     const companyExists = await Company.exists({ companyId });
     if (!companyExists) {
       return res.status(404).json({
         success: false,
         message: "Company not found.",
+      });
+    }
+
+    if (!(await isValidRoleForCompany(role, companyId))) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid role.",
       });
     }
 
@@ -768,6 +785,27 @@ export const setCompanyAccess = async (req, res) => {
         return res.status(403).json({
           success: false,
           message: "You don't have permission to manage access for this company.",
+        });
+      }
+
+      // Phase 43 — never let a Company Admin hand out a role (custom
+      // or system) that grants a permission they don't themselves
+      // effectively have.
+      const requesterEffective = await resolveEffectivePermissions(
+        "COMPANY_ADMIN",
+        companyId,
+        (
+          await UserCompanyAccess.findOne({ userId: requester._id, companyId, status: "ACTIVE" })
+            .select("permissionOverrides")
+            .lean()
+        )?.permissionOverrides
+      );
+      const targetGrantPermissions = await resolveEffectivePermissions(role, companyId, []);
+      const missing = targetGrantPermissions.filter((p) => !requesterEffective.includes(p));
+      if (missing.length > 0) {
+        return res.status(403).json({
+          success: false,
+          message: `You cannot grant a role with a permission you don't have yourself: ${missing[0]}`,
         });
       }
     }
@@ -1045,6 +1083,156 @@ export const removeChatbotAccess = async (req, res) => {
   }
 };
 
+// Phase 36 — "what can this user do?" effective permission matrix,
+// plus Phase 15/52/53's inherited-vs-override breakdown. Computes the
+// SAME effective set can()/resolveEffectivePermissions would use for
+// a real authorization check — this is a read view onto that, not a
+// second implementation.
+export const getUserEffectivePermissions = async (req, res) => {
+  try {
+    const requester = req.adminUser;
+    const { companyId } = req.query;
+    if (!companyId) {
+      return res.status(400).json({ success: false, message: "companyId is required." });
+    }
+
+    const targetUser = await AdminUser.findById(req.params.id).lean();
+    if (!targetUser) {
+      return res.status(404).json({ success: false, message: "User not found." });
+    }
+
+    if (requester.role !== "SUPER_ADMIN" && String(requester._id) !== String(targetUser._id)) {
+      if (!(await canManageUserAsCompanyAdmin(requester, targetUser))) {
+        return res.status(403).json({ success: false, message: "You don't have permission to access this resource." });
+      }
+    }
+
+    if (targetUser.role === "SUPER_ADMIN") {
+      return res.status(200).json({
+        success: true,
+        role: "SUPER_ADMIN",
+        roleLabel: "Super Admin",
+        basePermissions: Object.values(PERMISSIONS),
+        overrides: [],
+        effectivePermissions: Object.values(PERMISSIONS),
+      });
+    }
+
+    const access = await UserCompanyAccess.findOne({ userId: targetUser._id, companyId, status: "ACTIVE" }).lean();
+    if (!access) {
+      return res.status(200).json({
+        success: true,
+        role: null,
+        roleLabel: null,
+        basePermissions: [],
+        overrides: [],
+        effectivePermissions: [],
+      });
+    }
+
+    const basePermissions = await resolveRolePermissions(access.role, companyId);
+    const effectivePermissions = await resolveEffectivePermissions(access.role, companyId, access.permissionOverrides);
+
+    let roleLabel = access.role;
+    if (!["COMPANY_ADMIN", "AGENT", "VIEWER", "DEVELOPER"].includes(access.role)) {
+      const roleDoc = await Role.findById(access.role).select("name").lean();
+      roleLabel = roleDoc?.name || "Unknown Role";
+    }
+
+    return res.status(200).json({
+      success: true,
+      role: access.role,
+      roleLabel,
+      basePermissions,
+      overrides: access.permissionOverrides || [],
+      effectivePermissions,
+    });
+  } catch (error) {
+    console.error("Get Effective Permissions Error:", error);
+    return res.status(500).json({ success: false, message: "Failed to load effective permissions." });
+  }
+};
+
+// Phase 15/43 — per-user permission overrides on top of their
+// (system or custom) role within one company. Atomic replace of the
+// whole overrides array (Phase 39/40 — never one checkbox per
+// request), anti-escalation checked exactly like role grants above.
+export const setUserPermissionOverrides = async (req, res) => {
+  try {
+    const requester = req.adminUser;
+    const { companyId, overrides } = req.body;
+
+    if (!companyId || !Array.isArray(overrides)) {
+      return res.status(400).json({ success: false, message: "companyId and overrides[] are required." });
+    }
+
+    const validPermissions = new Set(Object.values(PERMISSIONS));
+    for (const o of overrides) {
+      if (!o || !validPermissions.has(o.permission) || typeof o.granted !== "boolean") {
+        return res.status(400).json({ success: false, message: "One or more overrides are invalid." });
+      }
+    }
+
+    const targetUser = await AdminUser.findById(req.params.id).lean();
+    if (!targetUser) {
+      return res.status(404).json({ success: false, message: "User not found." });
+    }
+    if (targetUser.role === "SUPER_ADMIN") {
+      return res.status(400).json({ success: false, message: "Super Admin already has every permission." });
+    }
+
+    if (requester.role !== "SUPER_ADMIN") {
+      if (!(await canManageUserAsCompanyAdmin(requester, targetUser))) {
+        return res.status(403).json({ success: false, message: "You don't have permission to access this resource." });
+      }
+      // Phase 43 — never let a Company Admin grant (via override) a
+      // permission they don't themselves effectively have. Denials
+      // (granted: false) are always allowed — removing access is
+      // never an escalation.
+      const requesterAccess = await UserCompanyAccess.findOne({ userId: requester._id, companyId, status: "ACTIVE" }).select("role permissionOverrides").lean();
+      const requesterEffective = requesterAccess
+        ? await resolveEffectivePermissions(requesterAccess.role, companyId, requesterAccess.permissionOverrides)
+        : [];
+      const grantedOverrides = overrides.filter((o) => o.granted).map((o) => o.permission);
+      const missing = grantedOverrides.filter((p) => !requesterEffective.includes(p));
+      if (missing.length > 0) {
+        return res.status(403).json({
+          success: false,
+          message: `You cannot grant a permission you don't have yourself: ${missing[0]}`,
+        });
+      }
+    }
+
+    const access = await UserCompanyAccess.findOneAndUpdate(
+      { userId: req.params.id, companyId, status: "ACTIVE" },
+      { permissionOverrides: overrides },
+      { new: true }
+    );
+    if (!access) {
+      return res.status(404).json({ success: false, message: "This user has no active access to that company." });
+    }
+
+    await logAction(req, {
+      action: "SET_PERMISSION_OVERRIDES",
+      resource: "AdminUser",
+      resourceId: req.params.id,
+      companyId,
+      metadata: { overrides },
+    });
+
+    // The user's effective permission set just changed — force a
+    // resubscribe so any live socket re-validates against it, same
+    // treatment as a company-access revoke.
+    disconnectUserSockets(req.params.id);
+    emitDomainEvent(EVENTS.ACCESS_UPDATED, { userId: req.params.id, payload: { companyId, overridesUpdated: true } });
+
+    return res.status(200).json({ success: true, access });
+  } catch (error) {
+    console.error("Set Permission Overrides Error:", error);
+    return res.status(500).json({ success: false, message: "Failed to update permission overrides." });
+  }
+};
+
 export const deleteUser = async (req, res) => {
   try {
     const requester = req.adminUser;
@@ -1089,6 +1277,7 @@ export const deleteUser = async (req, res) => {
     }
 
     await unassignConversations(user._id);
+    await unassignTasks(user._id);
 
     await Promise.all([
       UserCompanyAccess.deleteMany({ userId: user._id }),

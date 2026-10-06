@@ -2,7 +2,8 @@ import AdminUser from "../../models/adminUser.model.js";
 import { signAdminToken } from "../../services/admin/token.service.js";
 import { logAction } from "../../services/admin/audit.service.js";
 import { getCompanyRole } from "../../services/admin/access.service.js";
-import { getPermissionsForRole } from "../../services/admin/permissions.service.js";
+import { resolveEffectivePermissions } from "../../services/admin/permissions.service.js";
+import UserCompanyAccess from "../../models/userCompanyAccess.model.js";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -129,10 +130,19 @@ export const getMyPermissions = async (req, res) => {
       return res.status(200).json({ success: true, companyRole: null, permissions: [] });
     }
 
+    const overrides =
+      companyRole === "SUPER_ADMIN"
+        ? []
+        : (
+            await UserCompanyAccess.findOne({ userId: req.adminUser._id, companyId, status: "ACTIVE" })
+              .select("permissionOverrides")
+              .lean()
+          )?.permissionOverrides;
+
     return res.status(200).json({
       success: true,
       companyRole,
-      permissions: getPermissionsForRole(companyRole),
+      permissions: await resolveEffectivePermissions(companyRole, companyId, overrides),
     });
   } catch (error) {
     console.error("Get My Permissions Error:", error);

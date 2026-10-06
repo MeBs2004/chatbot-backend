@@ -6,6 +6,7 @@ import UserCompanyAccess from "../../models/userCompanyAccess.model.js";
 import Company from "../../models/company.model.js";
 import { logAction } from "../../services/admin/audit.service.js";
 import { assertMemberQuota, QuotaExceededError } from "../../services/billing/quota.service.js";
+import { isValidRoleForCompany } from "../../services/admin/role.service.js";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const COMPANY_ROLES = ["COMPANY_ADMIN", "AGENT", "VIEWER", "DEVELOPER"];
@@ -80,7 +81,7 @@ export const createInvitation = async (req, res) => {
         return res.status(400).json({ success: false, message: `Company "${companyId}" does not exist.` });
       }
       const entryRole = (typeof entry === "object" && entry.role) || role;
-      if (!COMPANY_ROLES.includes(entryRole)) {
+      if (!(await isValidRoleForCompany(entryRole, companyId))) {
         return res.status(400).json({ success: false, message: `Invalid company role "${entryRole}".` });
       }
       normalizedCompanyAccess.push({ companyId, role: entryRole });

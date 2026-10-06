@@ -12,9 +12,12 @@ import analyticsRoutes from "./analytics.route.js";
 import invitationRoutes from "./invitation.route.js";
 import developerRoutes from "./developer.route.js";
 import billingRoutes from "./billing.route.js";
+import roleRoutes from "./role.route.js";
+import taskRoutes from "./task.route.js";
 
 import adminAuthMiddleware from "../../middleware/adminAuth.middleware.js";
 import { getDashboard } from "../../controllers/admin/dashboard.controller.js";
+import { getFeatures } from "../../controllers/admin/role.controller.js";
 
 const router = express.Router();
 
@@ -30,6 +33,9 @@ router.use("/analytics", analyticsRoutes);
 router.use("/invitations", invitationRoutes);
 router.use("/developer", developerRoutes);
 router.use("/billing", billingRoutes);
+router.use("/roles", roleRoutes);
+router.use("/tasks", taskRoutes);
+router.get("/features", adminAuthMiddleware, getFeatures);
 router.get("/dashboard", adminAuthMiddleware, getDashboard);
 
 export default router;

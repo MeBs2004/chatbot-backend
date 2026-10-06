@@ -24,14 +24,38 @@ const userCompanyAccessSchema = new mongoose.Schema(
       index: true,
     },
 
+    // Either one of the 4 system company-scoped role keys
+    // (COMPANY_ADMIN/AGENT/VIEWER/DEVELOPER) or a custom Role's _id
+    // (as a string) — see services/admin/role.service.js. No longer a
+    // hard enum: a DB-backed custom role is validated at write time
+    // (isValidRoleForCompany), not by the schema.
     role: {
       type: String,
-      enum: ["COMPANY_ADMIN", "AGENT", "VIEWER", "DEVELOPER"],
       required: true,
     },
 
+    // Dead field, kept only for backward compatibility with any
+    // existing documents — never read by can()/getPermissionsForRole.
+    // Superseded by permissionOverrides below, which IS wired into
+    // permission resolution.
     permissions: {
       type: [String],
+      default: [],
+    },
+
+    // Per-user, per-company additions/removals layered on top of
+    // whatever the role (system or custom) already grants. `granted:
+    // true` adds a permission the role doesn't have; `granted: false`
+    // revokes one the role does have. See permissions.service.js's
+    // applyPermissionOverrides/resolveEffectivePermissions.
+    permissionOverrides: {
+      type: [
+        {
+          permission: { type: String, required: true },
+          granted: { type: Boolean, required: true },
+          _id: false,
+        },
+      ],
       default: [],
     },
 

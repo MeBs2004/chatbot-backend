@@ -13,6 +13,8 @@ import {
   removeChatbotAccess,
   deleteUser,
   resetUserPassword,
+  getUserEffectivePermissions,
+  setUserPermissionOverrides,
 } from "../../controllers/admin/user.controller.js";
 
 const router = express.Router();
@@ -44,5 +46,7 @@ router.post("/:id/chatbot-access", setChatbotAccess);
 router.delete("/:id/chatbot-access/:chatbotId", removeChatbotAccess);
 router.delete("/:id", deleteUser);
 router.post("/:id/reset-password", resetUserPassword);
+router.get("/:id/effective-permissions", getUserEffectivePermissions);
+router.patch("/:id/permission-overrides", setUserPermissionOverrides);
 
 export default router;
