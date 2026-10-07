@@ -34,7 +34,7 @@ export const getCompany = async (req, res) => {
     let widgetConfig = null;
 
     try {
-      const chatbots = await Chatbot.find({ companyId: req.company.companyId })
+      const chatbots = await Chatbot.find({ companyId: req.company.companyId, deletedAt: null })
         .select("_id widgetEngineVersion status config")
         .lean();
 

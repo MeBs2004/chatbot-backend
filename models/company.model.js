@@ -93,10 +93,39 @@ const companySchema = new mongoose.Schema(
     // Knowledge
     // ==========================
 
+    // Historical/display identifier only — e.g. "knowledge.txt" shown
+    // in the admin UI. NOT the storage location anymore: Render's web
+    // service filesystem is ephemeral (reset on every deploy and every
+    // idle-spindown restart), so a local file can never be the
+    // authoritative source for a production SaaS. The real content now
+    // lives in `knowledgeContent` below, which survives restarts
+    // because it's in MongoDB. See services/knowledge.service.js.
     knowledgeFile: {
       type: String,
       required: true,
       trim: true,
+    },
+
+    knowledgeContent: {
+      type: String,
+      default: "",
+    },
+
+    knowledgeUpdatedAt: {
+      type: Date,
+      default: null,
+    },
+
+    // Set once, the first time services/knowledge.migration.js
+    // successfully rescues (or confirms there's nothing to rescue
+    // from) this company's old disk file. Gates eligibility instead
+    // of "is knowledgeContent currently empty" — an admin
+    // deliberately clearing their knowledge base to blank must never
+    // be silently undone by the frozen, no-longer-written disk file
+    // reappearing on the next restart.
+    knowledgeMigratedAt: {
+      type: Date,
+      default: null,
     },
 
     suggestions: {

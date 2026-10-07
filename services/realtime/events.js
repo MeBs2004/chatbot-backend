@@ -26,10 +26,9 @@ export const EVENTS = {
   CHATBOT_UPDATED: "chatbot.updated",
   CHATBOT_CONFIG_UPDATED: "chatbot.config.updated",
 
-  // RESERVED — there is no chatbot-deletion endpoint anywhere in this
-  // codebase today (confirmed: no route, no controller function).
-  // Named now so the contract already has the slot if that CRUD gap
-  // is ever filled; not claimed as wired since nothing emits it.
+  // WIRED (Chatbots section hardening) — backend/controllers/admin/chatbot.controller.js.
+  // Soft-delete (Chatbot.deletedAt), not a hard removal — see the
+  // model comment for why.
   CHATBOT_DELETED: "chatbot.deleted",
 
   // RESERVED — company-level mutation events exist in
@@ -39,18 +38,30 @@ export const EVENTS = {
   // of a push event there is low relative to the other entities.
   COMPANY_UPDATED: "company.updated",
 
-  // RESERVED — knowledge base has no processing/status pipeline to
-  // report progress from (see Phase 15 report); wiring this event now
-  // would imply a state machine that does not exist yet.
+  // WIRED (Chatbots section hardening) — backend/controllers/admin/knowledgeAdmin.controller.js
+  // and backend/controllers/admin/company.controller.js. Only
+  // KNOWLEDGE_UPDATED is actually reachable: knowledge is one
+  // MongoDB field per Company (Company.knowledgeContent — moved off
+  // Render's ephemeral local disk, see knowledge.service.js), so
+  // there is no create/delete lifecycle distinct from "the content
+  // changed."
   KNOWLEDGE_CREATED: "knowledge.created",
   KNOWLEDGE_UPDATED: "knowledge.updated",
   KNOWLEDGE_DELETED: "knowledge.deleted",
 
-  // RESERVED — AI settings are a sub-document of Chatbot.settings;
-  // CHATBOT_UPDATED already fires on that save path today. A
-  // dedicated event was judged unnecessary duplication rather than
-  // deferred for lack of a hook point.
+  // WIRED (Chatbots section hardening) — backend/controllers/admin/aiSettings.controller.js.
+  // Previously RESERVED on the assumption CHATBOT_UPDATED already
+  // covered it — it didn't (aiSettings.controller.js never emitted
+  // anything), so AI Settings saves were invisible to other open
+  // admin tabs until this fix.
   AI_SETTINGS_UPDATED: "ai.settings.updated",
+
+  // WIRED (Chatbots section hardening) — backend/services/flow/flow.service.js.
+  // Previously not even named — Bot Builder mutations had zero
+  // realtime contract at all.
+  FLOW_UPDATED: "chatbot.flow.updated",
+  FLOW_PUBLISHED: "chatbot.flow.published",
+  FLOW_ROLLED_BACK: "chatbot.flow.rolledback",
 
   // WIRED (Phase 16) — backend/controllers/admin/user.controller.js.
   // Targeted at the affected user's own `user:<id>` room (io.js's

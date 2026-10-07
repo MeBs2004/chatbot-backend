@@ -107,7 +107,7 @@ export async function resolveAnalyticsScope(requester, { companyId, chatbotId } 
     const chatbot = await Chatbot.findById(chatbotId).select("companyId").lean();
     if (!chatbot) throw new AnalyticsAuthError("Chatbot not found.", 404);
 
-    const siblingCount = await Chatbot.countDocuments({ companyId: chatbot.companyId });
+    const siblingCount = await Chatbot.countDocuments({ companyId: chatbot.companyId, deletedAt: null });
     return {
       companyFilter: { companyId: chatbot.companyId },
       chatbotId,

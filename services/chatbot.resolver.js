@@ -10,7 +10,7 @@ import Chatbot from "../models/chatbot.model.js";
  * in exactly one place instead of being re-copied per phase.
  */
 export async function resolveSingleChatbotId(companyId) {
-  const chatbots = await Chatbot.find({ companyId }).select("_id").lean();
+  const chatbots = await Chatbot.find({ companyId, deletedAt: null }).select("_id").lean();
   if (chatbots.length !== 1) return null;
   return chatbots[0]._id;
 }

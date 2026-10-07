@@ -6,6 +6,8 @@ import { logAction } from "../../services/admin/audit.service.js";
 import { readKnowledgeFile, writeKnowledgeFile, KnowledgeConflictError } from "../../services/knowledge.service.js";
 import { extractKnowledgeFileText, UnsupportedKnowledgeFileError, SUPPORTED_KNOWLEDGE_UPLOAD_MIMETYPES } from "../../utils/extractKnowledgeFileText.js";
 import { askAI } from "../../services/ai.router.js";
+import { emitDomainEvent } from "../../services/realtime/io.js";
+import { EVENTS } from "../../services/realtime/events.js";
 
 // Chatbot-scoped door onto the exact same knowledge.service.js the
 // Company-scoped endpoints use (backend/controllers/admin/company.controller.js)
@@ -14,7 +16,7 @@ import { askAI } from "../../services/ai.router.js";
 
 async function loadAuthorizedChatbotAndCompany(req, res) {
   const chatbot = await Chatbot.findById(req.params.id).lean();
-  if (!chatbot) {
+  if (!chatbot || chatbot.deletedAt) {
     res.status(404).json({ success: false, message: "Chatbot not found." });
     return null;
   }
@@ -39,8 +41,14 @@ export const getChatbotKnowledge = async (req, res) => {
     const ctx = await loadAuthorizedChatbotAndCompany(req, res);
     if (!ctx) return;
 
-    const result = await readKnowledgeFile(ctx.company.knowledgeFile);
+    const result = await readKnowledgeFile(ctx.company.companyId);
     const status = result.error ? (result.content ? "FAILED" : "EMPTY") : result.content.trim() ? "READY" : "EMPTY";
+
+    const siblingChatbotCount = await Chatbot.countDocuments({
+      companyId: ctx.company.companyId,
+      deletedAt: null,
+      _id: { $ne: ctx.chatbot._id },
+    });
 
     return res.status(200).json({
       success: true,
@@ -50,6 +58,8 @@ export const getChatbotKnowledge = async (req, res) => {
       characterCount: result.content.length,
       updatedAt: result.updatedAt,
       status,
+      companyId: ctx.company.companyId,
+      siblingChatbotCount,
       ...(result.error && { error: result.error }),
     });
   } catch (error) {
@@ -78,7 +88,7 @@ export const updateChatbotKnowledge = async (req, res) => {
 
     let result;
     try {
-      result = await writeKnowledgeFile(ctx.company.knowledgeFile, content, { expectedUpdatedAt });
+      result = await writeKnowledgeFile(ctx.company.companyId, content, { expectedUpdatedAt });
     } catch (writeErr) {
       if (writeErr instanceof KnowledgeConflictError) {
         return res.status(409).json({ success: false, message: writeErr.message });
@@ -92,6 +102,17 @@ export const updateChatbotKnowledge = async (req, res) => {
       resourceId: ctx.chatbot._id,
       companyId: ctx.company.companyId,
       metadata: { knowledgeFile: ctx.company.knowledgeFile, bytes: result.sizeBytes },
+    });
+
+    // Company-room — the knowledge file is shared across every
+    // chatbot in this company (see Company.knowledgeFile), same
+    // reasoning as AI_SETTINGS_UPDATED above. Lets another admin's
+    // open Knowledge Base tab show a non-destructive "updated
+    // elsewhere" banner instead of silently going stale until their
+    // next save collides (409).
+    emitDomainEvent(EVENTS.KNOWLEDGE_UPDATED, {
+      companyId: ctx.company.companyId,
+      payload: { updatedAt: result.updatedAt, triggeredByChatbotId: ctx.chatbot._id },
     });
 
     return res.status(200).json({ success: true, message: "Knowledge base updated.", updatedAt: result.updatedAt });

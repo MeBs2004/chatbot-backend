@@ -67,7 +67,7 @@ export async function computeUsage(companyId, { since, until }) {
         { $match: { companyId } },
         { $group: { _id: null, deliveries: { $sum: "$totalDeliveries" }, failures: { $sum: "$totalFailures" } } },
       ]),
-      Chatbot.countDocuments({ companyId }),
+      Chatbot.countDocuments({ companyId, deletedAt: null }),
       UserCompanyAccess.countDocuments({ companyId, status: "ACTIVE" }),
       ApiKey.countDocuments({ companyId, status: "ACTIVE" }),
       DeveloperWebhook.countDocuments({ companyId }),

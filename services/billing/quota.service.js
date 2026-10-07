@@ -51,7 +51,7 @@ async function assertLimit(companyId, limitKey, countFn, label) {
 }
 
 export const assertChatbotQuota = (companyId) =>
-  assertLimit(companyId, "maxChatbots", () => Chatbot.countDocuments({ companyId }), "chatbot");
+  assertLimit(companyId, "maxChatbots", () => Chatbot.countDocuments({ companyId, deletedAt: null }), "chatbot");
 
 export const assertMemberQuota = (companyId) =>
   assertLimit(

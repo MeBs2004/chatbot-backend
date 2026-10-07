@@ -261,7 +261,7 @@ export const getKnowledge = async (req, res) => {
       return sendError(res, 403, "CHATBOT_ACCESS_DENIED", "This API key is not scoped to this chatbot.");
     }
 
-    const result = await readKnowledgeFile(company.knowledgeFile);
+    const result = await readKnowledgeFile(company.companyId);
     return sendSuccess(res, {
       content: result.content,
       characterCount: result.content.length,

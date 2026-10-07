@@ -15,6 +15,7 @@ import developerApiRoutes from "./routes/developerApi.route.js";
 
 import companyMiddleware from "./middleware/company.middleware.js";
 import { initRealtime } from "./services/realtime/socket.server.js";
+import { migrateKnowledgeFromDisk } from "./services/knowledge.migration.js";
 
 dotenv.config();
 
@@ -183,8 +184,16 @@ mongoose
     serverSelectionTimeoutMS: 10000,
     socketTimeoutMS: 45000,
   })
-  .then(() => {
+  .then(async () => {
     console.log("✅ MongoDB Connected");
+    try {
+      await migrateKnowledgeFromDisk();
+    } catch (err) {
+      // Never block startup over this — worst case, a company's
+      // pre-migration local-disk edit stays unrescued until the next
+      // deploy, not a reason to take the whole API down.
+      console.error("⚠️  Knowledge migration failed (non-fatal):", err.message);
+    }
   })
   .catch((err) => {
     console.error("❌ MongoDB Connection Failed");

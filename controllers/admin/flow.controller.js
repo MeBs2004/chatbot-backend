@@ -3,6 +3,8 @@ import { getCompanyRole } from "../../services/admin/access.service.js";
 import { logAction } from "../../services/admin/audit.service.js";
 import { validateFlow } from "../../validators/flow.validator.js";
 import * as flowService from "../../services/flow/flow.service.js";
+import { emitDomainEvent } from "../../services/realtime/io.js";
+import { EVENTS } from "../../services/realtime/events.js";
 
 /**
  * Shared guard for every flow endpoint below: loads the chatbot,
@@ -14,7 +16,7 @@ import * as flowService from "../../services/flow/flow.service.js";
  */
 async function loadAuthorizedChatbot(req, res) {
   const chatbot = await Chatbot.findById(req.params.id).lean();
-  if (!chatbot) {
+  if (!chatbot || chatbot.deletedAt) {
     res.status(404).json({ success: false, message: "Chatbot not found." });
     return null;
   }
@@ -78,6 +80,16 @@ export const saveFlowDraft = async (req, res) => {
       companyId: chatbot.companyId,
     });
 
+    // Admin-room notice only (Section 10 convention — see
+    // chatbot.controller.js's updateChatbotConfig comment): other open
+    // admin tabs refetch the draft themselves rather than trusting a
+    // socket payload as the authoritative flow graph.
+    emitDomainEvent(EVENTS.FLOW_UPDATED, {
+      companyId: chatbot.companyId,
+      chatbotId: chatbot._id,
+      payload: { nodeCount: draft.nodes.length },
+    });
+
     return res.status(200).json({ success: true, draft });
   } catch (error) {
     console.error("Save Flow Draft Error:", error);
@@ -132,6 +144,16 @@ export const publishFlow = async (req, res) => {
       metadata: { version: result.publishedVersion },
     });
 
+    // Admin-room only — the live pipeline already reads the published
+    // flow fresh from the DB on every turn (flow.resolver.js), so the
+    // public widget needs no push here. This just lets another open
+    // admin's Version History panel refresh without a manual reload.
+    emitDomainEvent(EVENTS.FLOW_PUBLISHED, {
+      companyId: chatbot.companyId,
+      chatbotId: chatbot._id,
+      payload: { version: result.publishedVersion },
+    });
+
     return res.status(200).json({ success: true, publishedVersion: result.publishedVersion, draft: result.draft });
   } catch (error) {
     console.error("Publish Flow Error:", error);
@@ -173,6 +195,12 @@ export const rollbackFlow = async (req, res) => {
       resourceId: chatbot._id,
       companyId: chatbot.companyId,
       metadata: { version: result.publishedVersion },
+    });
+
+    emitDomainEvent(EVENTS.FLOW_ROLLED_BACK, {
+      companyId: chatbot.companyId,
+      chatbotId: chatbot._id,
+      payload: { version: result.publishedVersion },
     });
 
     return res.status(200).json({ success: true, publishedVersion: result.publishedVersion });

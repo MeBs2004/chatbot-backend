@@ -2,8 +2,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 import Groq from "groq-sdk";
-import fs from "fs";
-import path from "path";
+import Company from "../models/company.model.js";
 import { isAIQuotaExceeded } from "./billing/quota.service.js";
 import { recordAIUsage } from "./billing/aiUsage.service.js";
 
@@ -21,41 +20,47 @@ const apiKeys = [
 
 // ===================================================
 // KNOWLEDGE CACHE
+// MongoDB (Company.knowledgeContent) is the source of truth — see
+// knowledge.service.js for why a local file could never be. This
+// Map is purely a performance optimization so a hot chatbot doesn't
+// re-fetch its (up to 2MB) knowledge text on every single message;
+// it is never what makes the result correct. Keyed by companyId, not
+// by filename — a company's knowledge now has nothing to do with any
+// file on disk.
 // ===================================================
 
 const knowledgeCache = new Map();
 
-const loadKnowledge = (knowledgeFile) => {
-  if (!knowledgeFile) return "";
+const loadKnowledge = async (companyId) => {
+  if (!companyId) return "";
 
-  if (knowledgeCache.has(knowledgeFile)) {
-    return knowledgeCache.get(knowledgeFile);
+  if (knowledgeCache.has(companyId)) {
+    return knowledgeCache.get(companyId);
   }
 
   try {
-    const filePath = path.resolve(process.cwd(), knowledgeFile);
+    const company = await Company.findOne({ companyId }).select("knowledgeContent").lean();
+    const knowledge = company?.knowledgeContent || "";
 
-    const knowledge = fs.readFileSync(filePath, "utf8");
-
-    knowledgeCache.set(knowledgeFile, knowledge);
-
-    console.log(`✅ Knowledge Loaded -> ${knowledgeFile}`);
+    knowledgeCache.set(companyId, knowledge);
+    console.log(`✅ Knowledge Loaded -> ${companyId}`);
 
     return knowledge;
   } catch (err) {
-    console.error(`Knowledge File Error: ${err.message}`);
+    console.error(`Knowledge Load Error (${companyId}): ${err.message}`);
     return "";
   }
 };
 
 /**
- * Called by the admin Knowledge Base endpoint after it writes a
- * new knowledge file to disk, so the running process picks up the
- * change immediately instead of serving stale cached content until
- * the next restart.
+ * Called by the admin Knowledge Base endpoint right after it writes
+ * new content to MongoDB, so the running process picks it up on the
+ * very next request instead of serving stale cached content —
+ * correctness comes from the Mongo write; this just keeps the cache
+ * from contradicting it for however long the process stays up.
  */
-export const invalidateKnowledgeCache = (knowledgeFile) => {
-  if (knowledgeFile) knowledgeCache.delete(knowledgeFile);
+export const invalidateKnowledgeCache = (companyId) => {
+  if (companyId) knowledgeCache.delete(companyId);
 };
 
 // ===================================================
@@ -167,7 +172,7 @@ export const askGroq = async ({
       return "⚠️ Please enter a valid message.";
     }
 
-    const knowledge = loadKnowledge(company.knowledgeFile);
+    const knowledge = await loadKnowledge(company.companyId);
 
     const systemPrompt =
       company.ai?.systemPrompt ||

@@ -172,6 +172,18 @@ const chatbotSchema = new mongoose.Schema(
       ref: "AdminUser",
       default: null,
     },
+
+    // Soft delete — set instead of removing the document so
+    // historical Conversations/Visitors/analytics that reference this
+    // chatbotId keep resolving correctly. `null` = not deleted.
+    // Deleted chatbots are filtered out of every list/detail read
+    // (see chatbot.controller.js) but the doc itself is never
+    // destroyed.
+    deletedAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
   },
   {
     timestamps: true,

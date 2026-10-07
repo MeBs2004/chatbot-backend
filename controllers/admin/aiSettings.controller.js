@@ -5,6 +5,8 @@ import { getCompanyRole, hasChatbotAccess } from "../../services/admin/access.se
 import { logAction } from "../../services/admin/audit.service.js";
 import { validateAiConfigPatch } from "../../validators/aiConfig.validator.js";
 import { askAI } from "../../services/ai.router.js";
+import { emitDomainEvent } from "../../services/realtime/io.js";
+import { EVENTS } from "../../services/realtime/events.js";
 import {
   SUPPORTED_MODELS,
   SUPPORTED_LANGUAGES,
@@ -25,7 +27,7 @@ import {
  */
 async function loadAuthorizedChatbotAndCompany(req, res) {
   const chatbot = await Chatbot.findById(req.params.id).lean();
-  if (!chatbot) {
+  if (!chatbot || chatbot.deletedAt) {
     res.status(404).json({ success: false, message: "Chatbot not found." });
     return null;
   }
@@ -50,12 +52,19 @@ export const getAiSettings = async (req, res) => {
     const ctx = await loadAuthorizedChatbotAndCompany(req, res);
     if (!ctx) return;
 
+    const siblingChatbotCount = await Chatbot.countDocuments({
+      companyId: ctx.company.companyId,
+      deletedAt: null,
+      _id: { $ne: ctx.chatbot._id },
+    });
+
     return res.status(200).json({
       success: true,
       ai: ctx.company.ai,
       chatbotId: ctx.chatbot._id,
       companyId: ctx.company.companyId,
       companyName: ctx.company.name,
+      siblingChatbotCount,
       options: {
         models: SUPPORTED_MODELS,
         languages: SUPPORTED_LANGUAGES,
@@ -118,6 +127,15 @@ export const updateAiSettings = async (req, res) => {
       resourceId: company.companyId,
       companyId: company.companyId,
       metadata: { chatbotId: ctx.chatbot._id, fields: Object.keys(patch) },
+    });
+
+    // Company-room, not chatbot-room — AI config is shared across
+    // every chatbot in this company (see Company.ai), so every admin
+    // with ANY of this company's chatbots open needs to know their
+    // view is now stale, not just the one chatbotId in this request.
+    emitDomainEvent(EVENTS.AI_SETTINGS_UPDATED, {
+      companyId: company.companyId,
+      payload: { changedFields: Object.keys(patch), triggeredByChatbotId: ctx.chatbot._id },
     });
 
     return res.status(200).json({ success: true, ai: company.ai });

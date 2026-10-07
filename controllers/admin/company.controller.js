@@ -19,6 +19,8 @@ import {
 import { validateAiConfigPatch } from "../../validators/aiConfig.validator.js";
 import { encryptSecret, decryptSecret } from "../../utils/encryption.js";
 import { assertSafeWebhookUrl } from "../../services/flow/flow.security.js";
+import { emitDomainEvent } from "../../services/realtime/io.js";
+import { EVENTS } from "../../services/realtime/events.js";
 
 // Phase 10: `webhook.secretEncrypted` must never leave this server —
 // every response that includes `company.webhook` goes through this
@@ -129,7 +131,7 @@ export const getCompanyDetail = async (req, res) => {
     }
 
     const [chatbots, visitorCount] = await Promise.all([
-      Chatbot.find({ companyId: company.companyId }).lean(),
+      Chatbot.find({ companyId: company.companyId, deletedAt: null }).lean(),
       Visitor.countDocuments({ companyId: company.companyId }),
     ]);
 
@@ -372,7 +374,7 @@ export const getCompanyKnowledge = async (req, res) => {
       });
     }
 
-    const result = await readKnowledgeFile(company.knowledgeFile);
+    const result = await readKnowledgeFile(company.companyId);
 
     return res.status(200).json({
       success: true,
@@ -422,7 +424,7 @@ export const updateCompanyKnowledge = async (req, res) => {
 
     let result;
     try {
-      result = await writeKnowledgeFile(company.knowledgeFile, content, { expectedUpdatedAt });
+      result = await writeKnowledgeFile(company.companyId, content, { expectedUpdatedAt });
     } catch (writeErr) {
       if (writeErr instanceof KnowledgeConflictError) {
         return res.status(409).json({ success: false, message: writeErr.message });
@@ -436,6 +438,16 @@ export const updateCompanyKnowledge = async (req, res) => {
       resourceId: company.companyId,
       companyId: company.companyId,
       metadata: { knowledgeFile: company.knowledgeFile, bytes: result.sizeBytes },
+    });
+
+    // Parity with the chatbot-scoped knowledge endpoint
+    // (knowledgeAdmin.controller.js) — this is the SAME underlying
+    // Company.knowledgeContent, just edited from the Company page
+    // instead of a specific chatbot's page, so any open Knowledge
+    // Base tab (chatbot-scoped or this one) needs the same notice.
+    emitDomainEvent(EVENTS.KNOWLEDGE_UPDATED, {
+      companyId: company.companyId,
+      payload: { updatedAt: result.updatedAt },
     });
 
     return res.status(200).json({ success: true, message: "Knowledge base updated.", updatedAt: result.updatedAt });

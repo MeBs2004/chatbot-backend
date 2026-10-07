@@ -1,6 +1,8 @@
 import Chatbot from "../../models/chatbot.model.js";
 import Company from "../../models/company.model.js";
 import ChatbotAccess from "../../models/chatbotAccess.model.js";
+import ChatbotFlow from "../../models/chatbotFlow.model.js";
+import Conversation from "../../models/conversation.model.js";
 import AdminUser from "../../models/adminUser.model.js";
 import {
   getAccessibleCompanyIds,
@@ -13,14 +15,22 @@ import { assertChatbotQuota, QuotaExceededError } from "../../services/billing/q
 import { emitDomainEvent } from "../../services/realtime/io.js";
 import { EVENTS } from "../../services/realtime/events.js";
 
+const SORTS = {
+  newest: { createdAt: -1 },
+  oldest: { createdAt: 1 },
+  updated: { updatedAt: -1 },
+  alphabetical: { name: 1 },
+  status: { status: 1, createdAt: -1 },
+};
+
 export const listChatbots = async (req, res) => {
   try {
     const requester = req.adminUser;
     const page = Math.max(parseInt(req.query.page) || 1, 1);
     const limit = Math.min(parseInt(req.query.limit) || 20, 100);
-    const { search, status, companyId } = req.query;
+    const { search, status, companyId, sort } = req.query;
 
-    const filter = {};
+    const filter = { deletedAt: null };
     if (status) filter.status = status;
     if (search) filter.name = { $regex: search, $options: "i" };
 
@@ -54,7 +64,7 @@ export const listChatbots = async (req, res) => {
 
     const [chatbots, total] = await Promise.all([
       Chatbot.find(filter)
-        .sort({ createdAt: -1 })
+        .sort(SORTS[sort] || SORTS.newest)
         .skip((page - 1) * limit)
         .limit(limit)
         .lean(),
@@ -99,7 +109,7 @@ export const getChatbotDetail = async (req, res) => {
     const requester = req.adminUser;
     const chatbot = await Chatbot.findById(req.params.id).lean();
 
-    if (!chatbot) {
+    if (!chatbot || chatbot.deletedAt) {
       return res.status(404).json({
         success: false,
         message: "Chatbot not found.",
@@ -113,9 +123,17 @@ export const getChatbotDetail = async (req, res) => {
       });
     }
 
-    const [company, accessRows] = await Promise.all([
+    const [company, accessRows, siblingChatbotCount] = await Promise.all([
       Company.findOne({ companyId: chatbot.companyId }).lean(),
       ChatbotAccess.find({ chatbotId: chatbot._id }).lean(),
+      // Both AI Settings and Knowledge Base are shared at the Company
+      // level, not per-chatbot (see Company.ai/Company.knowledgeFile)
+      // — surfaced to the frontend so it can warn an admin editing
+      // either from THIS chatbot's screen that other chatbots in the
+      // same company are affected too, instead of letting that
+      // assumption silently break (Section 34's "no disconnected
+      // configuration" principle).
+      Chatbot.countDocuments({ companyId: chatbot.companyId, deletedAt: null, _id: { $ne: chatbot._id } }),
     ]);
 
     const userIds = accessRows.map((a) => a.userId);
@@ -136,6 +154,7 @@ export const getChatbotDetail = async (req, res) => {
       chatbot: { ...chatbot, config: mergeChatbotConfig(chatbot.config) },
       company,
       access,
+      siblingChatbotCount,
     });
   } catch (error) {
     console.error("Get Chatbot Detail Error:", error);
@@ -258,7 +277,7 @@ export const updateChatbot = async (req, res) => {
     const requester = req.adminUser;
     const chatbot = await Chatbot.findById(req.params.id);
 
-    if (!chatbot) {
+    if (!chatbot || chatbot.deletedAt) {
       return res.status(404).json({
         success: false,
         message: "Chatbot not found.",
@@ -319,7 +338,7 @@ export const updateChatbotConfig = async (req, res) => {
     const requester = req.adminUser;
     const chatbot = await Chatbot.findById(req.params.id);
 
-    if (!chatbot) {
+    if (!chatbot || chatbot.deletedAt) {
       return res.status(404).json({
         success: false,
         message: "Chatbot not found.",
@@ -406,12 +425,77 @@ export const updateChatbotConfig = async (req, res) => {
   }
 };
 
+// Soft delete — see the Chatbot.deletedAt model comment for why this
+// never removes the document. Conversations/Visitors/analytics keep
+// their chatbotId reference intact and resolvable; only the things
+// that are pure, no-longer-meaningful configuration (ChatbotAccess
+// grants, Bot Builder draft/published/archived flow versions) are
+// actually removed, since there is nothing left to grant access TO or
+// publish a flow FOR once the chatbot itself is deleted.
+export const deleteChatbot = async (req, res) => {
+  try {
+    const requester = req.adminUser;
+    const chatbot = await Chatbot.findById(req.params.id);
+
+    if (!chatbot || chatbot.deletedAt) {
+      return res.status(404).json({
+        success: false,
+        message: "Chatbot not found.",
+      });
+    }
+
+    if (requester.role !== "SUPER_ADMIN") {
+      const role = await getCompanyRole(requester, chatbot.companyId);
+      if (role !== "COMPANY_ADMIN") {
+        return res.status(403).json({
+          success: false,
+          message: "You don't have permission to access this resource.",
+        });
+      }
+    }
+
+    const conversationCount = await Conversation.countDocuments({ chatbotId: chatbot._id });
+
+    chatbot.deletedAt = new Date();
+    chatbot.status = "OFFLINE";
+    await chatbot.save();
+
+    await Promise.all([
+      ChatbotFlow.deleteMany({ chatbotId: chatbot._id }),
+      ChatbotAccess.deleteMany({ chatbotId: chatbot._id }),
+    ]);
+
+    await logAction(req, {
+      action: "DELETE_CHATBOT",
+      resource: "Chatbot",
+      resourceId: chatbot._id,
+      companyId: chatbot.companyId,
+      metadata: { name: chatbot.name, conversationCount },
+    });
+
+    emitDomainEvent(EVENTS.CHATBOT_DELETED, {
+      companyId: chatbot.companyId,
+      chatbotId: chatbot._id,
+      payload: { name: chatbot.name },
+    });
+
+    return res.status(200).json({ success: true });
+  } catch (error) {
+    console.error("Delete Chatbot Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to delete chatbot.",
+    });
+  }
+};
+
 export const assignChatbotAccess = async (req, res) => {
   try {
     const requester = req.adminUser;
     const chatbot = await Chatbot.findById(req.params.id);
 
-    if (!chatbot) {
+    if (!chatbot || chatbot.deletedAt) {
       return res.status(404).json({
         success: false,
         message: "Chatbot not found.",
@@ -465,7 +549,7 @@ export const removeChatbotAccessForUser = async (req, res) => {
     const requester = req.adminUser;
     const chatbot = await Chatbot.findById(req.params.id).lean();
 
-    if (!chatbot) {
+    if (!chatbot || chatbot.deletedAt) {
       return res.status(404).json({
         success: false,
         message: "Chatbot not found.",

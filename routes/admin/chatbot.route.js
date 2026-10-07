@@ -7,6 +7,7 @@ import {
   createChatbot,
   updateChatbot,
   updateChatbotConfig,
+  deleteChatbot,
   assignChatbotAccess,
   removeChatbotAccessForUser,
 } from "../../controllers/admin/chatbot.controller.js";
@@ -48,6 +49,7 @@ router.get("/:id", getChatbotDetail);
 router.post("/", createChatbot);
 router.patch("/:id", updateChatbot);
 router.patch("/:id/config", updateChatbotConfig);
+router.delete("/:id", deleteChatbot);
 router.post("/:id/access", assignChatbotAccess);
 router.delete("/:id/access/:userId", removeChatbotAccessForUser);
 

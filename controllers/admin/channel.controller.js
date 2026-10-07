@@ -16,7 +16,7 @@ import * as websiteProvider from "../../integrations/providers/website.provider.
 
 async function loadAuthorizedChatbot(req, res) {
   const chatbot = await Chatbot.findById(req.params.id).lean();
-  if (!chatbot) {
+  if (!chatbot || chatbot.deletedAt) {
     res.status(404).json({ success: false, message: "Chatbot not found." });
     return null;
   }

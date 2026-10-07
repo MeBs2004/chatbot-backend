@@ -12,6 +12,7 @@ export const getDashboard = async (req, res) => {
     const accessibleIds = await getAccessibleCompanyIds(requester);
     const companyFilter =
       accessibleIds !== null ? { companyId: { $in: accessibleIds } } : {};
+    const chatbotFilter = { ...companyFilter, deletedAt: null };
 
     const [
       companyCount,
@@ -23,7 +24,7 @@ export const getDashboard = async (req, res) => {
       botHealth,
     ] = await Promise.all([
       Company.countDocuments(companyFilter),
-      Chatbot.countDocuments(companyFilter),
+      Chatbot.countDocuments(chatbotFilter),
       requester.role === "SUPER_ADMIN"
         ? AdminUser.countDocuments({})
         : Promise.resolve(null),
@@ -35,7 +36,7 @@ export const getDashboard = async (req, res) => {
         .sort({ createdAt: -1 })
         .limit(10)
         .lean(),
-      Chatbot.find(companyFilter).select("name status companyId").lean(),
+      Chatbot.find(chatbotFilter).select("name status companyId").lean(),
     ]);
 
     return res.status(200).json({

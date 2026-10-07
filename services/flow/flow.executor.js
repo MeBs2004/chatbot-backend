@@ -300,7 +300,7 @@ export async function executeTurn({ company, chatbotId, flow, visitorId, incomin
     }
 
     if (node.type === "knowledgeBase") {
-      // Reuses the exact same AI call — company.knowledgeFile is
+      // Reuses the exact same AI call — company.knowledgeContent is
       // always loaded into its system prompt already (groq.service.js
       // loadKnowledge). There is no separate knowledge-base system
       // here; this node only narrows the instruction.
