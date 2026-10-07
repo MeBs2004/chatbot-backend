@@ -6,6 +6,7 @@ import { logAction } from "../../services/admin/audit.service.js";
 import { readKnowledgeFile, writeKnowledgeFile, KnowledgeConflictError } from "../../services/knowledge.service.js";
 import { extractKnowledgeFileText, UnsupportedKnowledgeFileError, SUPPORTED_KNOWLEDGE_UPLOAD_MIMETYPES } from "../../utils/extractKnowledgeFileText.js";
 import { askAI } from "../../services/ai.router.js";
+import { invalidateKnowledgeCache } from "../../services/groq.service.js";
 import { emitDomainEvent } from "../../services/realtime/io.js";
 import { EVENTS } from "../../services/realtime/events.js";
 
@@ -217,5 +218,43 @@ export const testChatbotKnowledge = async (req, res) => {
   } catch (error) {
     console.error("Test Knowledge Error:", error);
     return res.status(500).json({ success: false, message: "Knowledge test failed." });
+  }
+};
+
+// Manual escape hatch for the one case that was never fully instant:
+// a company's knowledge edited directly in MongoDB (Atlas UI, a
+// script) rather than through this app. That case now self-heals
+// within 30s on its own (see groq.service.js's TTL), but an admin who
+// just did that and doesn't want to wait can force it immediately.
+// A normal Save through this page is ALREADY instant — it calls this
+// same invalidation right after its own write — so this button is a
+// manual tool for the out-of-band case, not a fix for the save flow
+// itself.
+export const clearChatbotKnowledgeCache = async (req, res) => {
+  try {
+    const ctx = await loadAuthorizedChatbotAndCompany(req, res);
+    if (!ctx) return;
+
+    const requester = req.adminUser;
+    if (requester.role !== "SUPER_ADMIN") {
+      const role = await getCompanyRole(requester, ctx.company.companyId);
+      if (role !== "COMPANY_ADMIN") {
+        return res.status(403).json({ success: false, message: "You don't have permission to access this resource." });
+      }
+    }
+
+    invalidateKnowledgeCache(ctx.company.companyId);
+
+    await logAction(req, {
+      action: "KNOWLEDGE_CACHE_CLEARED",
+      resource: "Chatbot",
+      resourceId: ctx.chatbot._id,
+      companyId: ctx.company.companyId,
+    });
+
+    return res.status(200).json({ success: true, message: "Knowledge cache cleared — the next message will reload from MongoDB." });
+  } catch (error) {
+    console.error("Clear Knowledge Cache Error:", error);
+    return res.status(500).json({ success: false, message: "Failed to clear knowledge cache." });
   }
 };

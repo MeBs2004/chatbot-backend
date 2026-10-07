@@ -21,6 +21,7 @@ import { encryptSecret, decryptSecret } from "../../utils/encryption.js";
 import { assertSafeWebhookUrl } from "../../services/flow/flow.security.js";
 import { emitDomainEvent } from "../../services/realtime/io.js";
 import { EVENTS } from "../../services/realtime/events.js";
+import { invalidateKnowledgeCache } from "../../services/groq.service.js";
 
 // Phase 10: `webhook.secretEncrypted` must never leave this server —
 // every response that includes `company.webhook` goes through this
@@ -458,6 +459,43 @@ export const updateCompanyKnowledge = async (req, res) => {
       success: false,
       message: "Failed to update knowledge base.",
     });
+  }
+};
+
+// Manual escape hatch — see the identical endpoint/comment in
+// knowledgeAdmin.controller.js (clearChatbotKnowledgeCache). A normal
+// Save through this page is already instant; this is for knowledge
+// edited directly in MongoDB rather than through either Knowledge
+// Base page.
+export const clearCompanyKnowledgeCache = async (req, res) => {
+  try {
+    const requester = req.adminUser;
+    const company = await Company.findOne({ companyId: req.params.id }).lean();
+
+    if (!company) {
+      return res.status(404).json({ success: false, message: "Company not found." });
+    }
+
+    if (requester.role !== "SUPER_ADMIN") {
+      const role = await getCompanyRole(requester, company.companyId);
+      if (role !== "COMPANY_ADMIN") {
+        return res.status(403).json({ success: false, message: "You don't have permission to access this resource." });
+      }
+    }
+
+    invalidateKnowledgeCache(company.companyId);
+
+    await logAction(req, {
+      action: "KNOWLEDGE_CACHE_CLEARED",
+      resource: "Company",
+      resourceId: company.companyId,
+      companyId: company.companyId,
+    });
+
+    return res.status(200).json({ success: true, message: "Knowledge cache cleared — the next message will reload from MongoDB." });
+  } catch (error) {
+    console.error("Clear Company Knowledge Cache Error:", error);
+    return res.status(500).json({ success: false, message: "Failed to clear knowledge cache." });
   }
 };
 

@@ -27,27 +27,44 @@ const apiKeys = [
 // it is never what makes the result correct. Keyed by companyId, not
 // by filename — a company's knowledge now has nothing to do with any
 // file on disk.
+//
+// TTL-bounded, not just invalidate-on-write: an admin-panel save
+// already invalidates instantly (writeKnowledgeFile calls
+// invalidateKnowledgeCache right after the Mongo write, so that path
+// is real-time with no 30s wait at all). The TTL exists for anything
+// that changes Company.knowledgeContent WITHOUT going through that
+// code path — a direct MongoDB edit, a script, Atlas's UI — so
+// staleness is always bounded to at most KNOWLEDGE_CACHE_TTL_MS no
+// matter how the data changed, instead of silently depending on every
+// future write path remembering to call invalidateKnowledgeCache.
 // ===================================================
 
-const knowledgeCache = new Map();
+const KNOWLEDGE_CACHE_TTL_MS = 30 * 1000;
+
+const knowledgeCache = new Map(); // companyId -> { content, cachedAt }
 
 const loadKnowledge = async (companyId) => {
   if (!companyId) return "";
 
-  if (knowledgeCache.has(companyId)) {
-    return knowledgeCache.get(companyId);
+  const cached = knowledgeCache.get(companyId);
+  if (cached && Date.now() - cached.cachedAt < KNOWLEDGE_CACHE_TTL_MS) {
+    return cached.content;
   }
 
   try {
     const company = await Company.findOne({ companyId }).select("knowledgeContent").lean();
     const knowledge = company?.knowledgeContent || "";
 
-    knowledgeCache.set(companyId, knowledge);
+    knowledgeCache.set(companyId, { content: knowledge, cachedAt: Date.now() });
     console.log(`✅ Knowledge Loaded -> ${companyId}`);
 
     return knowledge;
   } catch (err) {
     console.error(`Knowledge Load Error (${companyId}): ${err.message}`);
+    // A transient Mongo error should not erase a perfectly good,
+    // still-recent cached value just because its TTL expired at the
+    // same moment — keep serving it rather than falling back to "".
+    if (cached) return cached.content;
     return "";
   }
 };

@@ -10,6 +10,7 @@ import {
   setCompanyStatus,
   getCompanyKnowledge,
   updateCompanyKnowledge,
+  clearCompanyKnowledgeCache,
   testCompanyWebhook,
 } from "../../controllers/admin/company.controller.js";
 
@@ -24,6 +25,7 @@ router.patch("/:id", updateCompany);
 router.post("/:id/status", requireRole("SUPER_ADMIN"), setCompanyStatus);
 router.get("/:id/knowledge", getCompanyKnowledge);
 router.put("/:id/knowledge", updateCompanyKnowledge);
+router.post("/:id/knowledge/clear-cache", clearCompanyKnowledgeCache);
 router.post("/:id/webhook/test", testCompanyWebhook);
 
 export default router;

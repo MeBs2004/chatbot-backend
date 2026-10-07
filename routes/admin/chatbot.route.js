@@ -31,6 +31,7 @@ import {
   knowledgeUploadMiddleware,
   extractChatbotKnowledgeUpload,
   testChatbotKnowledge,
+  clearChatbotKnowledgeCache,
 } from "../../controllers/admin/knowledgeAdmin.controller.js";
 import {
   listChannels,
@@ -70,6 +71,7 @@ router.get("/:id/knowledge", getChatbotKnowledge);
 router.put("/:id/knowledge", updateChatbotKnowledge);
 router.post("/:id/knowledge/upload", knowledgeUploadMiddleware, extractChatbotKnowledgeUpload);
 router.post("/:id/knowledge/test", testChatbotKnowledge);
+router.post("/:id/knowledge/clear-cache", clearChatbotKnowledgeCache);
 
 // Channels (Phase 10)
 router.get("/:id/channels", listChannels);
