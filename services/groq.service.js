@@ -41,7 +41,7 @@ const apiKeys = [
 
 const KNOWLEDGE_CACHE_TTL_MS = 30 * 1000;
 
-const knowledgeCache = new Map(); // companyId -> { content, cachedAt }
+const knowledgeCache = new Map(); //performance: companyId -> { content, cachedAt }
 
 const loadKnowledge = async (companyId) => {
   if (!companyId) return "";
