@@ -52,9 +52,21 @@ export const DEFAULT_CHATBOT_CONFIG = {
     font: "system",
     customCss: "",
   },
+  // CTA quick-action buttons shown above the welcome message (Call/
+  // WhatsApp/Email/custom link) — mirrors the legacy Bot.jsx/OyaBot.jsx
+  // hardcoded buttons, made per-chatbot and admin-editable instead.
+  ctas: [],
+  // Per-chatbot suggestion chips. Empty = fall back to the existing
+  // company-wide GET bot/v1/suggestions endpoint (today's behavior,
+  // unchanged for every chatbot that never sets this) — see
+  // NuformlyWidget.jsx.
+  suggestions: [],
 };
 
 export const ALLOWED_FORM_FIELDS = ["name", "email", "phone", "company"];
+export const ALLOWED_CTA_TYPES = ["call", "whatsapp", "email", "custom"];
+export const MAX_CTAS = 6;
+export const MAX_SUGGESTIONS = 8;
 
 const HEX_RE = /^#([0-9A-Fa-f]{3}){1,2}$/;
 export const isValidHex = (v) => typeof v === "string" && HEX_RE.test(v);

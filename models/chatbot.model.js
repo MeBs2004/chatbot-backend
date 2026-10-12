@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { DEFAULT_CHATBOT_CONFIG, ALLOWED_FORM_FIELDS } from "../config/chatbotConfig.js";
+import { DEFAULT_CHATBOT_CONFIG, ALLOWED_FORM_FIELDS, ALLOWED_CTA_TYPES, MAX_CTAS, MAX_SUGGESTIONS } from "../config/chatbotConfig.js";
 
 // ======================================================
 // CHATBOT
@@ -111,6 +111,36 @@ const chatbotConfigSchema = new mongoose.Schema(
     appearance: {
       font: { type: String, enum: ["system", "inter"], default: DEFAULT_CHATBOT_CONFIG.appearance.font },
       customCss: { type: String, default: DEFAULT_CHATBOT_CONFIG.appearance.customCss, maxlength: 4000 },
+    },
+    // CTA quick-action buttons (Call/WhatsApp/Email/custom link) —
+    // see config/chatbotConfig.js. Array length capped at the schema
+    // level so an admin can't balloon the document with hundreds of
+    // buttons; the public widget only ever renders the enabled ones.
+    ctas: {
+      type: [
+        {
+          type: { type: String, enum: ALLOWED_CTA_TYPES, required: true },
+          enabled: { type: Boolean, default: true },
+          label: { type: String, trim: true, maxlength: 40, default: "" },
+          value: { type: String, trim: true, maxlength: 300, default: "" },
+          _id: false,
+        },
+      ],
+      default: DEFAULT_CHATBOT_CONFIG.ctas,
+      validate: {
+        validator: (v) => v.length <= MAX_CTAS,
+        message: `A chatbot can have at most ${MAX_CTAS} CTA buttons.`,
+      },
+    },
+    // Per-chatbot suggestion chips — empty means "fall back to the
+    // existing company-wide suggestions endpoint" (NuformlyWidget.jsx).
+    suggestions: {
+      type: [{ type: String, trim: true, maxlength: 80 }],
+      default: DEFAULT_CHATBOT_CONFIG.suggestions,
+      validate: {
+        validator: (v) => v.length <= MAX_SUGGESTIONS,
+        message: `A chatbot can have at most ${MAX_SUGGESTIONS} suggestions.`,
+      },
     },
   },
   { _id: false }

@@ -8,6 +8,7 @@ import {
   listConversations,
   getConversationThread,
   postConversationMessage,
+  postChatbotMessage,
   listVisitors,
   getAnalytics,
   getKnowledge,
@@ -39,6 +40,10 @@ router.get("/chatbots/:id", requireScope("chatbots:read"), getChatbot);
 router.get("/conversations", requireScope("conversations:read"), listConversations);
 router.get("/conversations/:visitorId", requireScope("conversations:read"), getConversationThread);
 router.post("/conversations/:visitorId/messages", requireScope("conversations:write"), postConversationMessage);
+
+// The real inbound chatbot webhook — sends a fresh visitor message to
+// a specific chatbot and gets back the actual AI/flow-engine reply.
+router.post("/chatbots/:id/messages", requireScope("messages:write"), postChatbotMessage);
 
 router.get("/visitors", requireScope("visitors:read"), listVisitors);
 

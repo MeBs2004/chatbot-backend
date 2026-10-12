@@ -15,6 +15,7 @@ export const API_SCOPES = [
   "chatbots:read",
   "conversations:read",
   "conversations:write",
+  "messages:write",
   "visitors:read",
   "analytics:read",
   "knowledge:read",

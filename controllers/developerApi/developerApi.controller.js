@@ -6,8 +6,10 @@ import Bot from "../../models/bot.model.js";
 import { resolveDateRange, computeAnalytics } from "../../services/analytics.service.js";
 import { readKnowledgeFile } from "../../services/knowledge.service.js";
 import { saveAgentReply } from "../../services/conversation.service.js";
+import { processInboundText } from "../../services/conversationPipeline.service.js";
 import { isChatbotAllowed } from "../../middleware/apiKeyAuth.middleware.js";
 import { sendSuccess, sendError } from "../../utils/apiResponse.js";
+import crypto from "crypto";
 
 // ======================================================
 // DEVELOPER API v1 (Phase 12) — /api/v1/developer/*
@@ -180,6 +182,75 @@ export const postConversationMessage = async (req, res) => {
   } catch (error) {
     console.error("Developer API postConversationMessage Error:", error);
     return sendError(res, 500, "INTERNAL_ERROR", "Failed to send message.");
+  }
+};
+
+// Real inbound chatbot webhook — a genuine AI-generated reply to a
+// fresh visitor message, not the agent-reply-into-an-existing-
+// conversation endpoint above. Reuses processInboundText, the exact
+// same channel-agnostic pipeline Telegram's webhook already runs
+// (conversationPipeline.service.js) — same availability check, same
+// flow engine, same knowledge/AI fallback, same handoff rules. No
+// second AI/knowledge implementation. The company-level AI/knowledge
+// scoping and single-chatbot-resolution rules that already apply to
+// every other channel apply here too — this is not a
+// chatbot-specific pipeline, because none exists yet (see the
+// Create Chatbot report's "AI settings scope" section).
+export const postChatbotMessage = async (req, res) => {
+  try {
+    const { companyId, company } = req.apiKeyContext;
+    const chatbotId = req.params.id;
+
+    if (!isChatbotAllowed(req, chatbotId)) {
+      return sendError(res, 403, "CHATBOT_ACCESS_DENIED", "This API key is not scoped to this chatbot.");
+    }
+
+    const chatbot = await Chatbot.findOne({ _id: chatbotId, companyId, deletedAt: null }).select("_id").lean();
+    if (!chatbot) {
+      return sendError(res, 404, "RESOURCE_NOT_FOUND", "Chatbot not found.");
+    }
+
+    const { text, language } = req.body;
+    let { visitorId } = req.body;
+
+    if (!text || typeof text !== "string" || !text.trim()) {
+      return sendError(res, 400, "INVALID_REQUEST", "text is required.");
+    }
+    if (text.length > 4000) {
+      return sendError(res, 400, "INVALID_REQUEST", "Message is too long (max 4000 characters).");
+    }
+    if (visitorId !== undefined && (typeof visitorId !== "string" || visitorId.length > 200)) {
+      return sendError(res, 400, "INVALID_REQUEST", "visitorId must be a string (max 200 characters).");
+    }
+    if (!visitorId) {
+      // No visitorId supplied — the caller has no notion of a return
+      // visitor (e.g. a one-off integration test); each such call
+      // starts its own fresh conversation rather than guessing.
+      visitorId = `api_${crypto.randomUUID()}`;
+    }
+
+    await UserMessage.create({ companyId, visitorId, sender: "user", text: text.trim() });
+
+    const { reply, conversation } = await processInboundText({
+      company,
+      visitorId,
+      text: text.trim(),
+      language: language || "English",
+      source: "api",
+    });
+
+    return sendSuccess(
+      res,
+      {
+        visitorId,
+        conversationId: conversation?._id || null,
+        message: { sender: "bot", text: reply, createdAt: new Date().toISOString() },
+      },
+      201
+    );
+  } catch (error) {
+    console.error("Developer API postChatbotMessage Error:", error);
+    return sendError(res, 500, "INTERNAL_ERROR", "Failed to process message.");
   }
 };
 

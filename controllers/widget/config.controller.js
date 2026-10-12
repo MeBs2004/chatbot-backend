@@ -25,7 +25,7 @@ export const getPublicWidgetConfig = async (req, res) => {
 
     const chatbot = await Chatbot.findById(chatbotId).lean();
 
-    if (!chatbot) {
+    if (!chatbot || chatbot.deletedAt) {
       return res.status(404).json({ success: false, message: "Chatbot not found." });
     }
 
