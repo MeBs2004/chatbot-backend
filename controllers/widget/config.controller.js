@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import Chatbot from "../../models/chatbot.model.js";
 import Company from "../../models/company.model.js";
 import { mergeChatbotConfig } from "../../config/chatbotConfig.js";
+import { isOriginAllowed } from "../../services/domainAllowlist.service.js";
 
 /**
  * Public, unauthenticated endpoint — the widget-config counterpart
@@ -29,6 +30,13 @@ export const getPublicWidgetConfig = async (req, res) => {
       return res.status(404).json({ success: false, message: "Chatbot not found." });
     }
 
+    if (!isOriginAllowed(chatbot.allowedDomains, req)) {
+      // Same 404 shape as "doesn't exist" — a caller probing from an
+      // unauthorized origin learns nothing about whether the
+      // chatbotId is even valid.
+      return res.status(404).json({ success: false, message: "Chatbot not found." });
+    }
+
     // Same enum as everywhere else in the project (chatbot.model.js)
     // — not inventing new status values here.
     if (chatbot.status === "PAUSED" || chatbot.status === "OFFLINE") {
@@ -50,6 +58,7 @@ export const getPublicWidgetConfig = async (req, res) => {
         id: chatbot._id,
         name: chatbot.name,
         companyName: company?.name || "",
+        template: chatbot.template || "general",
       },
       config: mergeChatbotConfig(chatbot.config),
     });

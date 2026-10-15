@@ -14,6 +14,8 @@ import { mergeChatbotConfig, deepMergeConfig } from "../../config/chatbotConfig.
 import { assertChatbotQuota, QuotaExceededError } from "../../services/billing/quota.service.js";
 import { emitDomainEvent } from "../../services/realtime/io.js";
 import { EVENTS } from "../../services/realtime/events.js";
+import { isValidTemplate } from "../../services/sectors/index.js";
+import { normalizeDomainList } from "../../services/domainAllowlist.service.js";
 
 const SORTS = {
   newest: { createdAt: -1 },
@@ -169,12 +171,19 @@ export const getChatbotDetail = async (req, res) => {
 export const createChatbot = async (req, res) => {
   try {
     const requester = req.adminUser;
-    const { companyId, name, model, settings } = req.body;
+    const { companyId, name, model, settings, template } = req.body;
 
     if (!companyId || !name) {
       return res.status(400).json({
         success: false,
         message: "companyId and name are required.",
+      });
+    }
+
+    if (template !== undefined && !isValidTemplate(template)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid template.",
       });
     }
 
@@ -237,6 +246,7 @@ export const createChatbot = async (req, res) => {
       companyId,
       name,
       model: model || undefined,
+      template: template || undefined,
       settings: safeSettings,
       createdBy: requester._id,
     });
@@ -294,11 +304,28 @@ export const updateChatbot = async (req, res) => {
       }
     }
 
-    const allowed = ["name", "status", "model", "settings", "widgetEngineVersion"];
+    if (req.body.template !== undefined && !isValidTemplate(req.body.template)) {
+      return res.status(400).json({ success: false, message: "Invalid template." });
+    }
+
+    let normalizedDomains;
+    if (req.body.allowedDomains !== undefined) {
+      const result = normalizeDomainList(req.body.allowedDomains);
+      if (!result.valid) {
+        return res.status(400).json({ success: false, message: result.error });
+      }
+      normalizedDomains = result.domains;
+    }
+
+    const allowed = ["name", "status", "model", "settings", "widgetEngineVersion", "template"];
     const changedFields = allowed.filter((f) => req.body[f] !== undefined);
     changedFields.forEach((f) => {
       chatbot[f] = req.body[f];
     });
+    if (normalizedDomains !== undefined) {
+      chatbot.allowedDomains = normalizedDomains;
+      changedFields.push("allowedDomains");
+    }
 
     await chatbot.save();
 

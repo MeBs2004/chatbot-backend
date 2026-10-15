@@ -32,6 +32,25 @@ const companySchema = new mongoose.Schema(
       trim: true,
     },
 
+    // Additive (Phase: Company Signup) — a pre-existing Company
+    // document simply lacks these; the frontend already treats a
+    // missing/"Other" industry and an empty companySize as valid,
+    // unset states rather than erroring, so no backfill migration is
+    // needed. Distinct from the four CHATBOT sectors used elsewhere
+    // (that's what kind of chatbot a company builds) — this is what
+    // business the COMPANY itself is in.
+    industry: {
+      type: String,
+      enum: ["Energy", "Education", "Digital Marketing", "Technology", "Finance", "Healthcare", "E-commerce", "Other"],
+      default: "Other",
+    },
+
+    companySize: {
+      type: String,
+      enum: ["", "1-10", "11-50", "51-200", "201-1000", "1000+"],
+      default: "",
+    },
+
     // ==========================
     // Branding
     // ==========================

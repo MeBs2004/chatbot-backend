@@ -9,8 +9,10 @@ import suggestionRoutes from "./routes/suggestion.route.js";
 import visitorRoutes from "./routes/visitor.route.js";
 import adminRoutes from "./routes/admin/index.js";
 import widgetConfigRoutes from "./routes/widget/config.route.js";
+import widgetCalculatorRoutes from "./routes/widget/calculator.route.js";
 import telegramWebhookRoutes from "./routes/webhooks/telegram.route.js";
 import invitationPublicRoutes from "./routes/invitationPublic.route.js";
+import companySignupRoutes from "./routes/companySignup.route.js";
 import developerApiRoutes from "./routes/developerApi.route.js";
 
 import companyMiddleware from "./middleware/company.middleware.js";
@@ -40,6 +42,16 @@ dotenv.config();
     !process.env.GROQ_API_KEY_5
   ) {
     missing.push("GROQ_API_KEY_1..5 (at least one required)");
+  }
+  // Only fails fast on a malformed value, not an absent one — unlike
+  // MONGO_URI/JWT_SECRET/Groq, this key is only exercised when a
+  // company actually configures an outbound webhook secret, so an
+  // install that never uses that feature shouldn't be blocked from
+  // starting at all. But a key that's SET and wrong-length would
+  // otherwise only surface as a confusing runtime error the first
+  // time someone tries to save a webhook secret — catch that now.
+  if (process.env.INTEGRATION_ENCRYPTION_KEY && !/^[0-9a-f]{64}$/i.test(process.env.INTEGRATION_ENCRYPTION_KEY)) {
+    missing.push("INTEGRATION_ENCRYPTION_KEY (set, but must be a 64-character hex string — see backend/.env.example)");
   }
 
   if (missing.length > 0) {
@@ -269,6 +281,7 @@ app.use("/api/admin", adminRoutes);
 // header, chatbot-scoped by ID. Separate from /bot/v1/* on purpose:
 // this never touches conversation logic.
 app.use("/api/widget/config", widgetConfigRoutes);
+app.use("/api/widget/calculate", widgetCalculatorRoutes);
 
 // Public inbound channel webhooks (Phase 10) — authenticated per-
 // request by a provider-specific secret (see the Telegram handler),
@@ -278,6 +291,7 @@ app.use("/webhooks/telegram", telegramWebhookRoutes);
 // Public invitation acceptance (Phase 11) — the token in the URL IS
 // the authentication; no adminAuthMiddleware.
 app.use("/api/invitations", invitationPublicRoutes);
+app.use("/api/company-signup", companySignupRoutes);
 
 // Developer API v1 (Phase 12) — external, API-key-authenticated.
 // Deliberately separate from /api/admin (admin JWT) and /bot/v1

@@ -18,10 +18,11 @@ import {
 } from "../../services/knowledge.service.js";
 import { validateAiConfigPatch } from "../../validators/aiConfig.validator.js";
 import { encryptSecret, decryptSecret } from "../../utils/encryption.js";
-import { assertSafeWebhookUrl } from "../../services/flow/flow.security.js";
+import { assertSafeWebhookUrl, WEBHOOK_MAX_RESPONSE_BYTES } from "../../services/flow/flow.security.js";
 import { emitDomainEvent } from "../../services/realtime/io.js";
 import { EVENTS } from "../../services/realtime/events.js";
 import { invalidateKnowledgeCache } from "../../services/groq.service.js";
+import { INDUSTRIES, COMPANY_SIZES } from "../../config/industries.js";
 
 // Phase 10: `webhook.secretEncrypted` must never leave this server —
 // every response that includes `company.webhook` goes through this
@@ -38,16 +39,28 @@ export const listCompanies = async (req, res) => {
     const requester = req.adminUser;
     const page = Math.max(parseInt(req.query.page) || 1, 1);
     const limit = Math.min(parseInt(req.query.limit) || 20, 100);
-    const { search, status } = req.query;
+    const { search, status, industry, dateFrom, dateTo, sort } = req.query;
 
     const filter = {};
     if (status) filter.status = status;
+    if (industry) filter.industry = industry;
     if (search) {
       filter.$or = [
         { name: { $regex: search, $options: "i" } },
         { companyId: { $regex: search, $options: "i" } },
         { domain: { $regex: search, $options: "i" } },
+        { "contact.email": { $regex: search, $options: "i" } },
       ];
+    }
+    if (dateFrom || dateTo) {
+      filter.createdAt = {};
+      if (dateFrom) filter.createdAt.$gte = new Date(dateFrom);
+      if (dateTo) {
+        // Inclusive of the whole end day, not just 00:00:00 on it.
+        const end = new Date(dateTo);
+        end.setHours(23, 59, 59, 999);
+        filter.createdAt.$lte = end;
+      }
     }
 
     const accessibleIds = await getAccessibleCompanyIds(requester);
@@ -55,11 +68,19 @@ export const listCompanies = async (req, res) => {
       filter.companyId = { $in: accessibleIds };
     }
 
+    const SORT_OPTIONS = {
+      newest: { createdAt: -1 },
+      oldest: { createdAt: 1 },
+      name: { name: 1 },
+    };
+    const sortBy = SORT_OPTIONS[sort] || SORT_OPTIONS.newest;
+
     const [companies, total] = await Promise.all([
       Company.find(filter)
-        .sort({ createdAt: -1 })
+        .sort(sortBy)
         .skip((page - 1) * limit)
         .limit(limit)
+        .populate("createdBy", "name email")
         .lean(),
       Company.countDocuments(filter),
     ]);
@@ -84,11 +105,15 @@ export const listCompanies = async (req, res) => {
       visitorCounts.map((c) => [c._id, c.count])
     );
 
-    const result = companies.map((c) => ({
-      ...redactCompany(c),
-      chatbotCount: chatbotMap[c.companyId] || 0,
-      visitorCount: visitorMap[c.companyId] || 0,
-    }));
+    const result = companies.map((c) => {
+      const { createdBy, ...rest } = c;
+      return {
+        ...redactCompany(rest),
+        registeredBy: createdBy ? { name: createdBy.name, email: createdBy.email } : null,
+        chatbotCount: chatbotMap[c.companyId] || 0,
+        visitorCount: visitorMap[c.companyId] || 0,
+      };
+    });
 
     return res.status(200).json({
       success: true,
@@ -115,7 +140,9 @@ export const getCompanyDetail = async (req, res) => {
     const requester = req.adminUser;
     const company = await Company.findOne({
       companyId: req.params.id,
-    }).lean();
+    })
+      .populate("createdBy", "name email")
+      .lean();
 
     if (!company) {
       return res.status(404).json({
@@ -136,9 +163,11 @@ export const getCompanyDetail = async (req, res) => {
       Visitor.countDocuments({ companyId: company.companyId }),
     ]);
 
+    const { createdBy, ...companyRest } = company;
+
     return res.status(200).json({
       success: true,
-      company: redactCompany(company),
+      company: { ...redactCompany(companyRest), registeredBy: createdBy ? { name: createdBy.name, email: createdBy.email } : null },
       chatbots,
       stats: { visitorCount },
     });
@@ -236,10 +265,22 @@ export const updateCompany = async (req, res) => {
       "chatbot",
       "contact",
       "ai",
+      "companySize",
       // "webhook" is deliberately NOT in this generic whitelist —
       // it needs SSRF validation and secret encryption before it can
       // be assigned, handled explicitly below.
+      // "industry" is deliberately NOT in this generic whitelist —
+      // it has a strict enum and gets an explicit 400 below instead
+      // of a would-be Mongoose ValidationError surfacing as a bare 500.
     ];
+
+    if (req.body.industry !== undefined && !INDUSTRIES.includes(req.body.industry)) {
+      return res.status(400).json({ success: false, message: "Invalid industry." });
+    }
+    if (req.body.companySize !== undefined && req.body.companySize !== "" && !COMPANY_SIZES.includes(req.body.companySize)) {
+      return res.status(400).json({ success: false, message: "Invalid company size." });
+    }
+    if (req.body.industry !== undefined) company.industry = req.body.industry;
 
     // Billing plan is SUPER_ADMIN-only, same trust level as status —
     // a COMPANY_ADMIN must not be able to self-upgrade their plan.
@@ -558,7 +599,13 @@ export const testCompanyWebhook = async (req, res) => {
     if (secret) headers["X-Nuformly-Signature"] = `sha256=${crypto.createHmac("sha256", secret).update(body).digest("hex")}`;
 
     try {
-      const response = await axios.post(company.webhook.url, envelope, { headers, timeout: 8000 });
+      const response = await axios.post(company.webhook.url, envelope, {
+        headers,
+        timeout: 8000,
+        maxContentLength: WEBHOOK_MAX_RESPONSE_BYTES,
+        maxBodyLength: WEBHOOK_MAX_RESPONSE_BYTES,
+        maxRedirects: 0,
+      });
 
       company.webhook.lastTestedAt = new Date();
       company.webhook.lastConnectedAt = new Date();

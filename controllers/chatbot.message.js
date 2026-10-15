@@ -1,10 +1,13 @@
 import Bot from "../models/bot.model.js";
+import Chatbot from "../models/chatbot.model.js";
+import { isOriginAllowed } from "../services/domainAllowlist.service.js";
 import User from "../models/user.model.js";
 import Visitor from "../models/visitor.model.js";
 import mammoth from "mammoth";
 import XLSX from "xlsx";
 
 import { askGroq } from "../services/groq.service.js";
+import { getSectorInstructionForChatbot } from "../services/sectors/index.js";
 import { needsHumanHandoff } from "../services/handoff.service.js";
 import { getChatbotAvailability } from "../services/chatbotStatus.service.js";
 import { resolvePublishedFlow } from "../services/flow/flow.resolver.js";
@@ -15,7 +18,7 @@ import {
   touchConversationAfterAiReply,
   getPendingAgentReplySince,
 } from "../services/conversation.service.js";
-import { assertSafeWebhookUrl } from "../services/flow/flow.security.js";
+import { assertSafeWebhookUrl, WEBHOOK_MAX_RESPONSE_BYTES } from "../services/flow/flow.security.js";
 import { decryptSecret } from "../utils/encryption.js";
 import { dispatchWebhookEvent } from "../services/webhookDispatch.service.js";
 import { dispatchDeveloperWebhooks } from "../services/developerWebhookDispatch.service.js";
@@ -25,7 +28,7 @@ import axios from "axios";
 
 export const Message = async (req, res) => {
   try {
-    const { text = "", language: requestedLanguage, visitorId } = req.body;
+    const { text = "", language: requestedLanguage, visitorId, chatbotId: requestedChatbotId } = req.body;
 const file = req.file;
     const company = req.company;
 
@@ -34,6 +37,20 @@ const file = req.file;
         success: false,
         message: "Company not found.",
       });
+    }
+
+    // Optional, additive domain-allowlist enforcement for the v1
+    // engine: NuformlyWidget.jsx sends its own chatbotId with every
+    // message (see NuformlyWidget.jsx), so a chatbot-specific policy
+    // can be checked here too, not just on the initial config fetch.
+    // The legacy Bot.jsx/OyaBot.jsx widgets never send this field, so
+    // they're completely unaffected — same as every other v1-only
+    // feature added this session.
+    if (requestedChatbotId) {
+      const targetChatbot = await Chatbot.findById(requestedChatbotId).select("companyId deletedAt allowedDomains").lean();
+      if (!targetChatbot || targetChatbot.deletedAt || targetChatbot.companyId !== company.companyId || !isOriginAllowed(targetChatbot.allowedDomains, req)) {
+        return res.status(404).json({ success: false, message: "Chatbot not found." });
+      }
     }
 
     // Phase 7: honor the company's configured default language when
@@ -339,7 +356,15 @@ ${company.contact?.email || "Not Available"}
           }
         }
 
-        const webhook = await axios.post(company.webhook.url, payload, { headers, timeout: 8000 });
+        const webhook = await axios.post(company.webhook.url, payload, {
+          headers,
+          timeout: 8000,
+          maxContentLength: WEBHOOK_MAX_RESPONSE_BYTES,
+          maxBodyLength: WEBHOOK_MAX_RESPONSE_BYTES,
+          // Same reasoning as webhookDispatch.service.js: never follow
+          // a redirect to a destination assertSafeWebhookUrl never checked.
+          maxRedirects: 0,
+        });
 
         if (webhook.data?.reply) {
           await Bot.create({
@@ -552,6 +577,7 @@ const history = [...userHistory, ...botHistory]
   }));
 
 // Ask AI
+const extraInstruction = await getSectorInstructionForChatbot(conversation.chatbotId);
 const aiReply = await askGroq({
   company,
   message: finalMessage,
@@ -559,6 +585,7 @@ const aiReply = await askGroq({
   image: imageBase64,
   history,
   chatbotId: conversation.chatbotId,
+  extraInstruction,
 });
 
 // Save bot reply

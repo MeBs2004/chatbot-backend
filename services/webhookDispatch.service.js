@@ -44,6 +44,13 @@ async function deliver(url, envelope, secret, attempt = 1) {
       timeout: 8000,
       maxContentLength: WEBHOOK_MAX_RESPONSE_BYTES,
       maxBodyLength: WEBHOOK_MAX_RESPONSE_BYTES,
+      // assertSafeWebhookUrl only validated the URL we were ABOUT to
+      // connect to — axios follows redirects by default, which would
+      // let a server we approved hand back a 3xx pointing at an
+      // internal address we never checked. Disabling redirects
+      // entirely is the safe default; a destination that needs one
+      // should configure a final URL instead.
+      maxRedirects: 0,
     });
   } catch (err) {
     const retryable = RETRYABLE.has(err.code) && !err.response;

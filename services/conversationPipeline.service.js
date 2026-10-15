@@ -1,6 +1,7 @@
 import User from "../models/user.model.js";
 import Bot from "../models/bot.model.js";
 import { askGroq } from "./groq.service.js";
+import { getSectorInstructionForChatbot } from "./sectors/index.js";
 import { needsHumanHandoff } from "./handoff.service.js";
 import { getChatbotAvailability } from "./chatbotStatus.service.js";
 import { resolvePublishedFlow } from "./flow/flow.resolver.js";
@@ -164,7 +165,8 @@ export async function processInboundText({ company, visitorId, text, language = 
     .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
     .map((msg) => ({ sender: msg.sender, text: msg.text }));
 
-  const aiReply = await askGroq({ company, message: text, language, history, chatbotId: conversation.chatbotId });
+  const extraInstruction = await getSectorInstructionForChatbot(conversation.chatbotId);
+  const aiReply = await askGroq({ company, message: text, language, history, chatbotId: conversation.chatbotId, extraInstruction });
   await Bot.create({ companyId, visitorId, sender: "bot", text: aiReply });
   await touchConversationAfterAiReply(conversation, { text: aiReply });
 

@@ -51,6 +51,9 @@ async function attemptDelivery(url, envelope, secret, attempt = 1) {
       timeout: 8000,
       maxContentLength: WEBHOOK_MAX_RESPONSE_BYTES,
       maxBodyLength: WEBHOOK_MAX_RESPONSE_BYTES,
+      // Same reasoning as webhookDispatch.service.js: never follow a
+      // redirect to a destination assertSafeWebhookUrl never validated.
+      maxRedirects: 0,
     });
     return { ok: true, statusCode: res.status, latencyMs: Date.now() - start };
   } catch (err) {

@@ -184,6 +184,32 @@ const chatbotSchema = new mongoose.Schema(
       default: () => ({}),
     },
 
+    // Website domain allowlist (Production Installation phase) —
+    // empty array means unrestricted, the exact behavior every
+    // chatbot already had before this field existed. Enforced
+    // server-side on the public widget-config/messaging/calculator
+    // endpoints via services/domainAllowlist.service.js — never a
+    // frontend-only check.
+    allowedDomains: {
+      type: [{ type: String, trim: true, lowercase: true }],
+      default: [],
+    },
+
+    // Sector template (Shared Engine phase) — selected once at
+    // creation in the Create Chatbot wizard. Purely a configuration
+    // identifier: the shared messaging pipeline (groq.service.js) and
+    // the shared public widget both read this to select sector-
+    // specific prompt guidance / calculator UI, but every template
+    // flows through the exact same engine and schema — see
+    // services/sectors/. "general" (today's existing behavior) is
+    // the default so every pre-existing chatbot is unaffected.
+    template: {
+      type: String,
+      enum: ["general", "energy", "education", "digital_marketing"],
+      default: "general",
+      index: true,
+    },
+
     // Phase 5 rollout control. Every chatbot — including both real
     // production ones — defaults to "legacy" (today's hardcoded
     // Bot.jsx/OyaBot.jsx rendering, completely untouched). Only a

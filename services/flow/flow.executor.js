@@ -148,6 +148,11 @@ async function runWebhookNode(node, vars) {
       maxContentLength: WEBHOOK_MAX_RESPONSE_BYTES,
       maxBodyLength: WEBHOOK_MAX_RESPONSE_BYTES,
       validateStatus: () => true,
+      // assertSafeWebhookUrl only validated this exact URL — axios
+      // follows redirects by default, which would silently connect to
+      // a 3xx Location it never checked. A redirect response is
+      // returned as-is instead (handled as non-2xx below), never followed.
+      maxRedirects: 0,
     });
 
     if (response.status >= 200 && response.status < 300) {
