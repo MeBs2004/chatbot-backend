@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 import Chatbot from "../../models/chatbot.model.js";
 import Company from "../../models/company.model.js";
 import { mergeChatbotConfig } from "../../config/chatbotConfig.js";
-import { isOriginAllowed } from "../../services/domainAllowlist.service.js";
+import { isWidgetRequestAllowed } from "../../middleware/widgetSession.middleware.js";
 
 /**
  * The public-safe payload for one chatbot, shared by
@@ -57,7 +57,7 @@ export const getPublicWidgetConfig = async (req, res) => {
       return res.status(404).json({ success: false, message: "Chatbot not found." });
     }
 
-    if (!isOriginAllowed(chatbot.allowedDomains, req)) {
+    if (!isWidgetRequestAllowed(req, chatbot)) {
       // Same 404 shape as "doesn't exist" — a caller probing from an
       // unauthorized origin learns nothing about whether the
       // chatbotId is even valid.

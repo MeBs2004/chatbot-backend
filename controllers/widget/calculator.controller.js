@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 import Chatbot from "../../models/chatbot.model.js";
 import { MARKETING_CALCULATIONS } from "../../services/sectors/marketingCalculator.service.js";
 import { calculateEnergyBom } from "../../services/sectors/energyBomCalculator.service.js";
-import { isOriginAllowed } from "../../services/domainAllowlist.service.js";
+import { isWidgetRequestAllowed } from "../../middleware/widgetSession.middleware.js";
 
 // ======================================================
 // PUBLIC SECTOR CALCULATORS — deterministic math only, no AI
@@ -17,7 +17,7 @@ async function resolveChatbot(chatbotId, req) {
   if (!mongoose.Types.ObjectId.isValid(chatbotId)) return null;
   const chatbot = await Chatbot.findById(chatbotId).select("template deletedAt status allowedDomains").lean();
   if (!chatbot || chatbot.deletedAt) return null;
-  if (!isOriginAllowed(chatbot.allowedDomains, req)) return null;
+  if (!isWidgetRequestAllowed(req, chatbot)) return null;
   return chatbot;
 }
 

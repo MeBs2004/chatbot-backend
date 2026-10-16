@@ -16,7 +16,7 @@ import invitationPublicRoutes from "./routes/invitationPublic.route.js";
 import companySignupRoutes from "./routes/companySignup.route.js";
 import developerApiRoutes from "./routes/developerApi.route.js";
 
-import companyMiddleware from "./middleware/company.middleware.js";
+import { publicTenantMiddleware } from "./middleware/widgetSession.middleware.js";
 import { initRealtime } from "./services/realtime/socket.server.js";
 import { migrateKnowledgeFromDisk } from "./services/knowledge.migration.js";
 
@@ -132,7 +132,7 @@ app.use((req, res, next) => {
 
     res.header(
       "Access-Control-Allow-Headers",
-      "Content-Type, Authorization, x-company-id"
+      "Content-Type, Authorization, x-company-id, x-widget-token"
     );
 
     res.header("Access-Control-Max-Age", "86400");
@@ -250,28 +250,28 @@ app.get("/health", (req, res) => {
 // Company
 app.use(
   "/bot/v1/company",
-  companyMiddleware,
+  publicTenantMiddleware,
   companyRoutes
 );
 
 // Chatbot
 app.use(
   "/bot/v1",
-  companyMiddleware,
+  publicTenantMiddleware,
   chatbotRoutes
 );
 
 // Suggestions
 app.use(
   "/bot/v1/suggestions",
-  companyMiddleware,
+  publicTenantMiddleware,
   suggestionRoutes
 );
 
 // Visitor
 app.use(
   "/bot/v1/visitor",
-  companyMiddleware,
+  publicTenantMiddleware,
   visitorRoutes
 );
 

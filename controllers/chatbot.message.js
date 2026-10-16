@@ -29,7 +29,8 @@ import axios from "axios";
 
 export const Message = async (req, res) => {
   try {
-    const { text = "", language: requestedLanguage, visitorId, chatbotId: requestedChatbotId } = req.body;
+    const { text = "", language: requestedLanguage, visitorId, chatbotId: bodyChatbotId } = req.body;
+    let requestedChatbotId = bodyChatbotId;
 const file = req.file;
     const company = req.company;
 
@@ -47,7 +48,15 @@ const file = req.file;
     // The legacy Bot.jsx/OyaBot.jsx widgets never send this field, so
     // they're completely unaffected — same as every other v1-only
     // feature added this session.
-    if (requestedChatbotId) {
+    // Widget-token request (widgetSessionMiddleware): the token already
+    // fixed the chatbot and its company — a body chatbotId may only
+    // repeat it, never switch to another one.
+    if (req.chatbot) {
+      if (bodyChatbotId && String(bodyChatbotId) !== String(req.chatbot._id)) {
+        return res.status(404).json({ success: false, message: "Chatbot not found." });
+      }
+      requestedChatbotId = req.chatbot._id;
+    } else if (requestedChatbotId) {
       const targetChatbot = await Chatbot.findById(requestedChatbotId).select("companyId deletedAt allowedDomains").lean();
       if (!targetChatbot || targetChatbot.deletedAt || targetChatbot.companyId !== company.companyId || !isOriginAllowed(targetChatbot.allowedDomains, req)) {
         return res.status(404).json({ success: false, message: "Chatbot not found." });
