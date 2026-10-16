@@ -22,6 +22,16 @@ const botSchema = new mongoose.Schema(
       trim: true,
     },
 
+    // Which chatbot this record belongs to. `null` for legacy rows
+    // written before chatbot attribution existed (and for companies
+    // whose chatbot couldn't be resolved) — a chatbot-scoped admin
+    // never sees a null-attributed row (see access.service.js).
+    chatbotId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Chatbot",
+      default: null,
+    },
+
     // "handoff" marks the automatic human-handoff reply (see
     // services/handoff.service.js); "system" marks an automated
     // notice such as a paused/offline maintenance message (see
@@ -60,5 +70,8 @@ botSchema.index({ companyId: 1, visitorId: 1 });
 // collection scan on every request.
 botSchema.index({ companyId: 1, createdAt: 1 });
 botSchema.index({ companyId: 1, type: 1, createdAt: 1 });
+
+// Chatbot-scoped analytics (a user assigned to specific chatbots).
+botSchema.index({ companyId: 1, chatbotId: 1, createdAt: 1 });
 
 export default mongoose.model("Bot", botSchema);

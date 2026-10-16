@@ -229,7 +229,7 @@ export const postChatbotMessage = async (req, res) => {
       visitorId = `api_${crypto.randomUUID()}`;
     }
 
-    await UserMessage.create({ companyId, visitorId, sender: "user", text: text.trim() });
+    await UserMessage.create({ companyId, visitorId, chatbotId: chatbot._id, sender: "user", text: text.trim() });
 
     const { reply, conversation } = await processInboundText({
       company,
@@ -237,6 +237,7 @@ export const postChatbotMessage = async (req, res) => {
       text: text.trim(),
       language: language || "English",
       source: "api",
+      chatbotId: chatbot._id,
     });
 
     return sendSuccess(

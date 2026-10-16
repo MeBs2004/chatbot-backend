@@ -4,7 +4,7 @@ import AdminUser from "../../models/adminUser.model.js";
 import Chatbot from "../../models/chatbot.model.js";
 import Company from "../../models/company.model.js";
 import { verifyAdminToken } from "../admin/token.service.js";
-import { hasCompanyAccess, hasChatbotAccess, getAccessibleCompanyIds } from "../admin/access.service.js";
+import { hasCompanyAccess, hasChatbotAccess, getAccessibleCompanyIds, getAssignedChatbotIds } from "../admin/access.service.js";
 import { setIO, companyRoom, chatbotRoom, widgetChatbotRoom } from "./io.js";
 
 // Phase 15 — realtime layer. Two namespaces, deliberately separate
@@ -136,7 +136,11 @@ export function initRealtime(httpServer) {
         const companyIds = ids === null ? (await Company.find({}).select("companyId").lean()).map((c) => c.companyId) : ids;
 
         companyIds.forEach((id) => socket.join(companyRoom(id)));
-        ack?.({ success: true, count: companyIds.length });
+        // Chatbot-scoped users get only their assigned chatbots' rooms,
+        // never the whole company's.
+        const chatbotIds = ids === null ? [] : await getAssignedChatbotIds(socket.adminUser);
+        chatbotIds.forEach((id) => socket.join(chatbotRoom(String(id))));
+        ack?.({ success: true, count: companyIds.length + chatbotIds.length });
       } catch (err) {
         console.error("subscribe:accessible-companies error:", err);
         ack?.({ success: false, message: "Subscription failed." });

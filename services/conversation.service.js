@@ -17,11 +17,21 @@ import { EVENTS } from "./realtime/events.js";
  * Never creates a duplicate — see the model's unique
  * {companyId, visitorId} index.
  */
-export async function getOrCreateConversation(companyId, visitorId) {
+export async function getOrCreateConversation(companyId, visitorId, requestedChatbotId = null) {
   let conversation = await Conversation.findOne({ companyId, visitorId });
-  if (conversation) return conversation;
+  if (conversation) {
+    // Attribute a conversation created before its chatbot was known
+    // (multi-chatbot company, legacy widget) the first time a message
+    // arrives that does name its chatbot. Never re-attributes one
+    // that already has a chatbot.
+    if (!conversation.chatbotId && requestedChatbotId) {
+      conversation.chatbotId = requestedChatbotId;
+      await conversation.save();
+    }
+    return conversation;
+  }
 
-  const chatbotId = await resolveSingleChatbotId(companyId);
+  const chatbotId = requestedChatbotId || (await resolveSingleChatbotId(companyId));
   try {
     conversation = await Conversation.create({ companyId, chatbotId, visitorId });
   } catch (err) {
@@ -44,6 +54,19 @@ export async function getOrCreateConversation(companyId, visitorId) {
   });
 
   return conversation;
+}
+
+/**
+ * The chatbot a new message for this visitor belongs to, resolved
+ * before the conversation itself is touched: the widget-supplied
+ * (already validated) chatbotId, else the existing conversation's,
+ * else the company's only chatbot. null when ambiguous.
+ */
+export async function resolveMessageChatbotId(companyId, visitorId, requestedChatbotId = null) {
+  if (requestedChatbotId) return requestedChatbotId;
+  const existing = await Conversation.findOne({ companyId, visitorId }).select("chatbotId").lean();
+  if (existing?.chatbotId) return existing.chatbotId;
+  return resolveSingleChatbotId(companyId);
 }
 
 /**
@@ -151,7 +174,9 @@ export async function getPendingAgentReplySince(conversation, sinceDate) {
 }
 
 export function getConversationPermissions(role) {
-  const isSuperOrCompanyAdmin = role === "SUPER_ADMIN" || role === "COMPANY_ADMIN";
+  // CHATBOT_MANAGER's role only ever reaches here for a conversation
+  // of a chatbot they can access (see getConversationRole).
+  const isSuperOrCompanyAdmin = role === "SUPER_ADMIN" || role === "COMPANY_ADMIN" || role === "CHATBOT_MANAGER";
   const isAgent = role === "AGENT";
   return {
     canReply: isSuperOrCompanyAdmin || isAgent,
@@ -274,6 +299,7 @@ export async function saveAgentReply(conversation, adminUser, text) {
   const botMessage = await Bot.create({
     companyId: conversation.companyId,
     visitorId: conversation.visitorId,
+    chatbotId: conversation.chatbotId || null,
     sender: "bot",
     type: "agent",
     agentId: adminUser._id,

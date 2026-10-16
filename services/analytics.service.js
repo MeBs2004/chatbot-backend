@@ -3,7 +3,7 @@ import UserMessage from "../models/user.model.js";
 import Bot from "../models/bot.model.js";
 import Conversation from "../models/conversation.model.js";
 import Chatbot from "../models/chatbot.model.js";
-import { getAccessibleCompanyIds, hasChatbotAccess } from "./admin/access.service.js";
+import { hasCompanyAccess, hasChatbotAccess, getScopeFilter } from "./admin/access.service.js";
 // ======================================================
 // ANALYTICS SERVICE (Phase 9)
 // The one place every metric is actually calculated — both
@@ -98,14 +98,24 @@ export function resolveDateRange({ days, startDate, endDate }) {
  * user's real access on every call.
  */
 export async function resolveAnalyticsScope(requester, { companyId, chatbotId } = {}) {
-  const accessibleIds = await getAccessibleCompanyIds(requester);
-
   if (chatbotId) {
     if (!(await hasChatbotAccess(requester, chatbotId))) {
       throw new AnalyticsAuthError("You don't have permission to access this resource.");
     }
     const chatbot = await Chatbot.findById(chatbotId).select("companyId").lean();
     if (!chatbot) throw new AnalyticsAuthError("Chatbot not found.", 404);
+
+    // A chatbot-scoped user must never see company-wide totals — scope
+    // every metric (visitors and messages too, via their stamped
+    // chatbotId) to exactly this chatbot.
+    if (!(await hasCompanyAccess(requester, chatbot.companyId))) {
+      return {
+        companyFilter: { companyId: chatbot.companyId, chatbotId: chatbot._id },
+        chatbotId,
+        chatbotAttributionExact: true,
+        note: null,
+      };
+    }
 
     const siblingCount = await Chatbot.countDocuments({ companyId: chatbot.companyId, deletedAt: null });
     return {
@@ -119,18 +129,14 @@ export async function resolveAnalyticsScope(requester, { companyId, chatbotId } 
     };
   }
 
-  if (companyId) {
-    if (accessibleIds !== null && !accessibleIds.includes(companyId)) {
-      throw new AnalyticsAuthError("You don't have permission to access this resource.");
-    }
-    return { companyFilter: { companyId }, chatbotId: null, chatbotAttributionExact: true, note: null };
+  let companyFilter;
+  try {
+    companyFilter = await getScopeFilter(requester, { companyId: companyId || null });
+  } catch (err) {
+    if (err.status === 403) throw new AnalyticsAuthError(err.message);
+    throw err;
   }
-
-  if (accessibleIds !== null) {
-    return { companyFilter: { companyId: { $in: accessibleIds } }, chatbotId: null, chatbotAttributionExact: true, note: null };
-  }
-
-  return { companyFilter: {}, chatbotId: null, chatbotAttributionExact: true, note: null };
+  return { companyFilter, chatbotId: null, chatbotAttributionExact: true, note: null };
 }
 
 function dayBucketPipeline(match, dateField = "createdAt") {

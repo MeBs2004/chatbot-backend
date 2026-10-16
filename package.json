@@ -12,7 +12,8 @@
     "dev": "nodemon index.js",
     "seed:company": "node seeders/company.seed.js",
     "seed:admin": "node seeders/adminUser.seed.js",
-    "seed:chatbots": "node seeders/chatbot.seed.js"
+    "seed:chatbots": "node seeders/chatbot.seed.js",
+    "migrate:chatbot-access": "node scripts/migrateChatbotScopedAccess.mjs"
   },
   "keywords": [
     "chatbot",

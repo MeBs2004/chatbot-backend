@@ -5,10 +5,26 @@ import ChatbotFlow from "../../models/chatbotFlow.model.js";
 import Conversation from "../../models/conversation.model.js";
 import AdminUser from "../../models/adminUser.model.js";
 import {
-  getAccessibleCompanyIds,
   hasChatbotAccess,
+  hasCompanyAccess,
   getCompanyRole,
+  getChatbotRole,
+  getScopeFilter,
 } from "../../services/admin/access.service.js";
+import {
+  grantChatbotAccess,
+  revokeChatbotAccess,
+  AssignmentError,
+} from "../../services/admin/chatbotAssignment.service.js";
+import { RoleError } from "../../services/admin/role.service.js";
+
+// Roles that may edit one chatbot's own settings/config.
+const CHATBOT_EDITOR_ROLES = ["SUPER_ADMIN", "COMPANY_ADMIN", "CHATBOT_MANAGER"];
+
+// Company fields any user with access to one of the company's
+// chatbots may see. Full company details (contact, AI prompt,
+// webhook config, plan…) are only for company-scoped users.
+const COMPANY_SUMMARY_FIELDS = "companyId name domain website industry status branding theme";
 import { logAction } from "../../services/admin/audit.service.js";
 import { mergeChatbotConfig, deepMergeConfig } from "../../config/chatbotConfig.js";
 import { assertChatbotQuota, QuotaExceededError } from "../../services/billing/quota.service.js";
@@ -36,33 +52,16 @@ export const listChatbots = async (req, res) => {
     if (status) filter.status = status;
     if (search) filter.name = { $regex: search, $options: "i" };
 
-    const accessibleIds = await getAccessibleCompanyIds(requester);
-
-    // A user can also be granted access to a single chatbot directly
-    // (ChatbotAccess) without full company access — include those too.
-    const chatbotAccessIds =
-      accessibleIds !== null
-        ? (
-            await ChatbotAccess.find({ userId: requester._id })
-              .select("chatbotId")
-              .lean()
-          ).map((a) => a.chatbotId)
-        : [];
-
-    if (companyId) {
-      if (accessibleIds !== null && !accessibleIds.includes(companyId)) {
-        return res.status(403).json({
-          success: false,
-          message: "You don't have permission to access this resource.",
-        });
-      }
-      filter.companyId = companyId;
-    } else if (accessibleIds !== null) {
-      filter.$or = [
-        { companyId: { $in: accessibleIds } },
-        { _id: { $in: chatbotAccessIds } },
-      ];
+    // SUPER_ADMIN: everything. Company-scoped: every chatbot in their
+    // companies. Chatbot-scoped: only the chatbots assigned to them.
+    let scope;
+    try {
+      scope = await getScopeFilter(requester, { companyId: companyId || null, chatbotField: "_id" });
+    } catch (err) {
+      if (err.status === 403) return res.status(403).json({ success: false, message: err.message });
+      throw err;
     }
+    Object.assign(filter, scope);
 
     const [chatbots, total] = await Promise.all([
       Chatbot.find(filter)
@@ -125,9 +124,15 @@ export const getChatbotDetail = async (req, res) => {
       });
     }
 
+    // Chatbot-scoped users get a company summary only, and never the
+    // list of who else has access.
+    const fullAccess = await hasCompanyAccess(requester, chatbot.companyId);
+
     const [company, accessRows, siblingChatbotCount] = await Promise.all([
-      Company.findOne({ companyId: chatbot.companyId }).lean(),
-      ChatbotAccess.find({ chatbotId: chatbot._id }).lean(),
+      fullAccess
+        ? Company.findOne({ companyId: chatbot.companyId }).lean()
+        : Company.findOne({ companyId: chatbot.companyId }).select(COMPANY_SUMMARY_FIELDS).lean(),
+      fullAccess ? ChatbotAccess.find({ chatbotId: chatbot._id }).lean() : [],
       // Both AI Settings and Knowledge Base are shared at the Company
       // level, not per-chatbot (see Company.ai/Company.knowledgeFile)
       // — surfaced to the frontend so it can warn an admin editing
@@ -294,14 +299,11 @@ export const updateChatbot = async (req, res) => {
       });
     }
 
-    if (requester.role !== "SUPER_ADMIN") {
-      const role = await getCompanyRole(requester, chatbot.companyId);
-      if (role !== "COMPANY_ADMIN") {
-        return res.status(403).json({
-          success: false,
-          message: "You don't have permission to access this resource.",
-        });
-      }
+    if (!CHATBOT_EDITOR_ROLES.includes(await getChatbotRole(requester, chatbot))) {
+      return res.status(403).json({
+        success: false,
+        message: "You don't have permission to access this resource.",
+      });
     }
 
     if (req.body.template !== undefined && !isValidTemplate(req.body.template)) {
@@ -372,14 +374,11 @@ export const updateChatbotConfig = async (req, res) => {
       });
     }
 
-    if (requester.role !== "SUPER_ADMIN") {
-      const role = await getCompanyRole(requester, chatbot.companyId);
-      if (role !== "COMPANY_ADMIN") {
-        return res.status(403).json({
-          success: false,
-          message: "You don't have permission to access this resource.",
-        });
-      }
+    if (!CHATBOT_EDITOR_ROLES.includes(await getChatbotRole(requester, chatbot))) {
+      return res.status(403).json({
+        success: false,
+        message: "You don't have permission to access this resource.",
+      });
     }
 
     const incoming = req.body.config;
@@ -539,29 +538,23 @@ export const assignChatbotAccess = async (req, res) => {
       }
     }
 
-    const { userId, permissions = [] } = req.body;
+    const { userId, role, permissions = [] } = req.body;
     if (!userId) {
       return res
         .status(400)
         .json({ success: false, message: "userId is required." });
     }
 
-    const access = await ChatbotAccess.findOneAndUpdate(
-      { userId, chatbotId: chatbot._id },
-      { permissions },
-      { upsert: true, new: true }
-    );
+    const { access, companyAccess } = await grantChatbotAccess(req, { userId, chatbot, role, permissions });
 
-    await logAction(req, {
-      action: "ASSIGN_CHATBOT_ACCESS",
-      resource: "Chatbot",
-      resourceId: chatbot._id,
-      companyId: chatbot.companyId,
-      metadata: { userId },
-    });
-
-    return res.status(200).json({ success: true, access });
+    return res.status(200).json({ success: true, access, companyAccess });
   } catch (error) {
+    if (error instanceof QuotaExceededError) {
+      return res.status(402).json({ success: false, message: error.message, code: "QUOTA_EXCEEDED", limitKey: error.limitKey });
+    }
+    if (error instanceof AssignmentError || error instanceof RoleError) {
+      return res.status(error.status).json({ success: false, message: error.message, code: error.code });
+    }
     console.error("Assign Chatbot Access Error:", error);
 
     return res.status(500).json({
@@ -593,17 +586,7 @@ export const removeChatbotAccessForUser = async (req, res) => {
       }
     }
 
-    await ChatbotAccess.findOneAndDelete({
-      chatbotId: req.params.id,
-      userId: req.params.userId,
-    });
-
-    await logAction(req, {
-      action: "REMOVE_CHATBOT_ACCESS",
-      resource: "Chatbot",
-      resourceId: req.params.id,
-      metadata: { userId: req.params.userId },
-    });
+    await revokeChatbotAccess(req, { userId: req.params.userId, chatbot });
 
     return res.status(200).json({ success: true });
   } catch (error) {

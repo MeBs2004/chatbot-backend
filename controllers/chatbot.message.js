@@ -17,6 +17,7 @@ import {
   ingestVisitorMessage,
   touchConversationAfterAiReply,
   getPendingAgentReplySince,
+  resolveMessageChatbotId,
 } from "../services/conversation.service.js";
 import { assertSafeWebhookUrl, WEBHOOK_MAX_RESPONSE_BYTES } from "../services/flow/flow.security.js";
 import { decryptSecret } from "../utils/encryption.js";
@@ -60,6 +61,11 @@ const file = req.file;
     const language = requestedLanguage || company.ai?.language || "English";
 
     const companyId = company.companyId;
+
+    // Which chatbot this turn belongs to — stamped on the visitor,
+    // both messages and the conversation so chatbot-scoped admins see
+    // exactly their chatbot's data (see services/admin/access.service.js).
+    const chatbotId = await resolveMessageChatbotId(companyId, visitorId, requestedChatbotId || null);
 // Allow either text OR file
 if ((!text || !text.trim()) && !file) {
   return res.status(400).json({
@@ -90,6 +96,7 @@ console.log("MIME :", file?.mimetype);
             lastVisit: new Date(),
             lastMessage: text,
             status: "online",
+            ...(chatbotId && { chatbotId }),
           },
         },
         {
@@ -105,6 +112,7 @@ console.log("MIME :", file?.mimetype);
    const userMessage = await User.create({
   companyId,
   visitorId,
+  chatbotId,
   sender: "user",
   text:
     text && text.trim()
@@ -129,6 +137,7 @@ console.log("MIME :", file?.mimetype);
       await Bot.create({
         companyId,
         visitorId,
+        chatbotId,
         sender: "bot",
         type: "system",
         text: maintenanceMessage,
@@ -152,7 +161,7 @@ console.log("MIME :", file?.mimetype);
     // what delivers any agent reply that was waiting.
     // =========================
 
-    const conversation = await getOrCreateConversation(companyId, visitorId);
+    const conversation = await getOrCreateConversation(companyId, visitorId, chatbotId);
     const previousVisitorMessageAt = conversation.lastVisitorMessageAt;
     // A brand-new document's createdAt/updatedAt are set to the same
     // instant by Mongoose; any subsequent .save() (ingestVisitorMessage
@@ -233,6 +242,7 @@ console.log("MIME :", file?.mimetype);
           await Bot.create({
             companyId,
             visitorId,
+            chatbotId: conversation.chatbotId,
             sender: "bot",
             type: "flow",
             text: flowResult.reply,
@@ -297,6 +307,7 @@ ${company.contact?.email || "Not Available"}
      await Bot.create({
   companyId,
   visitorId,
+  chatbotId: conversation.chatbotId,
   sender: "bot",
   type: "handoff",
   text: handoffMessage,
@@ -370,6 +381,7 @@ ${company.contact?.email || "Not Available"}
           await Bot.create({
   companyId,
   visitorId,
+  chatbotId: conversation.chatbotId,
   sender: "bot",
   text: webhook.data.reply,
 });
@@ -592,6 +604,7 @@ const aiReply = await askGroq({
 await Bot.create({
   companyId,
   visitorId,
+  chatbotId: conversation.chatbotId,
   sender: "bot",
   text: aiReply,
 });
@@ -609,7 +622,6 @@ return res.status(200).json({
   return res.status(500).json({
     success: false,
     message: "Internal Server Error",
-    error: error.message,
   });
 }
 };

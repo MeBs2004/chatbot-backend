@@ -24,6 +24,15 @@ const visitorSchema = new mongoose.Schema(
       index: true,
     },
 
+    // Set from the conversation's chatbot once known — see
+    // chatbot.message.js. Lets visitor lists/live view be scoped to
+    // exactly the chatbots a chatbot-scoped admin is assigned to.
+    chatbotId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Chatbot",
+      default: null,
+    },
+
     // ==========================
     // Geo Location
     // ==========================
@@ -179,5 +188,6 @@ visitorSchema.index(
 // lastVisit sort, both of which previously ran unindexed.
 visitorSchema.index({ companyId: 1, firstVisit: 1 });
 visitorSchema.index({ companyId: 1, lastVisit: -1 });
+visitorSchema.index({ chatbotId: 1, lastVisit: -1 });
 
 export default mongoose.model("Visitor", visitorSchema);

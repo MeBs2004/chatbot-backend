@@ -12,11 +12,31 @@ import { emitDomainEvent, disconnectUserSockets } from "../../services/realtime/
 import { EVENTS } from "../../services/realtime/events.js";
 import { unassignTasks } from "../../services/admin/task.service.js";
 import { isValidRoleForCompany } from "../../services/admin/role.service.js";
-import { PERMISSIONS, resolveEffectivePermissions, resolveRolePermissions } from "../../services/admin/permissions.service.js";
+import { PERMISSIONS, isSystemRole, isRoleAllowedForChatbotScope, resolveEffectivePermissions, resolveRolePermissions } from "../../services/admin/permissions.service.js";
 import Role from "../../models/role.model.js";
+import {
+  grantChatbotAccess,
+  revokeChatbotAccess,
+  AssignmentError,
+} from "../../services/admin/chatbotAssignment.service.js";
+import { RoleError } from "../../services/admin/role.service.js";
+
+// Maps the typed errors thrown by the assignment/role/quota services
+// to an HTTP response. Returns false for anything unexpected.
+function sendKnownError(res, err) {
+  if (err instanceof QuotaExceededError) {
+    res.status(402).json({ success: false, message: err.message, code: "QUOTA_EXCEEDED", limitKey: err.limitKey });
+    return true;
+  }
+  if (err instanceof AssignmentError || err instanceof RoleError) {
+    res.status(err.status).json({ success: false, message: err.message, code: err.code });
+    return true;
+  }
+  return false;
+}
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const ROLES = ["SUPER_ADMIN", "COMPANY_ADMIN", "AGENT", "VIEWER", "DEVELOPER"];
+const ROLES = ["SUPER_ADMIN", "COMPANY_ADMIN", "CHATBOT_MANAGER", "AGENT", "VIEWER", "DEVELOPER"];
 
 // ======================================================
 // Phase 11 — team-management helpers shared by every mutation below.
@@ -422,29 +442,23 @@ export const createUser = async (req, res) => {
           });
         }
 
+        const accessScope = (typeof entry === "object" && entry.accessScope) || "COMPANY";
+        if (!["COMPANY", "CHATBOTS"].includes(accessScope)) {
+          return res.status(400).json({ success: false, message: "accessScope must be COMPANY or CHATBOTS." });
+        }
+        if (accessScope === "CHATBOTS" && !isRoleAllowedForChatbotScope(entryRole)) {
+          return res.status(400).json({
+            success: false,
+            message: "A user limited to specific chatbots can't be a Company Admin. Use Chatbot Manager instead.",
+          });
+        }
+
         normalizedCompanyAccess.push({
           companyId,
           role: entryRole,
+          accessScope,
           permissions: (typeof entry === "object" && entry.permissions) || [],
         });
-      }
-    }
-
-    if (allowedCompanyIds && normalizedCompanyAccess.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Select at least one company for this user.",
-      });
-    }
-
-    for (const entry of normalizedCompanyAccess) {
-      try {
-        await assertMemberQuota(entry.companyId);
-      } catch (err) {
-        if (err instanceof QuotaExceededError) {
-          return res.status(402).json({ success: false, message: err.message, code: "QUOTA_EXCEEDED", limitKey: err.limitKey });
-        }
-        throw err;
       }
     }
 
@@ -473,8 +487,49 @@ export const createUser = async (req, res) => {
 
         normalizedChatbotAccess.push({
           chatbotId,
+          companyId: chatbot.companyId,
           permissions: (typeof entry === "object" && entry.permissions) || [],
         });
+
+        // A chatbot in a company the user isn't otherwise joining makes
+        // them a chatbot-scoped member of that company: they'll see
+        // only the chatbots assigned here.
+        if (role !== "SUPER_ADMIN" && !normalizedCompanyAccess.some((a) => a.companyId === chatbot.companyId)) {
+          const entryRole = (typeof entry === "object" && entry.role) || role;
+          if (!isRoleAllowedForChatbotScope(entryRole)) {
+            return res.status(400).json({
+              success: false,
+              message: "A user limited to specific chatbots can't be a Company Admin. Use Chatbot Manager instead.",
+            });
+          }
+          if (!(await isValidRoleForCompany(entryRole, chatbot.companyId))) {
+            return res.status(400).json({ success: false, message: `Invalid role "${entryRole}".` });
+          }
+          normalizedCompanyAccess.push({
+            companyId: chatbot.companyId,
+            role: entryRole,
+            accessScope: "CHATBOTS",
+            permissions: [],
+          });
+        }
+      }
+    }
+
+    if (allowedCompanyIds && normalizedCompanyAccess.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Select at least one company or chatbot for this user.",
+      });
+    }
+
+    for (const entry of normalizedCompanyAccess) {
+      try {
+        await assertMemberQuota(entry.companyId);
+      } catch (err) {
+        if (err instanceof QuotaExceededError) {
+          return res.status(402).json({ success: false, message: err.message, code: "QUOTA_EXCEEDED", limitKey: err.limitKey });
+        }
+        throw err;
       }
     }
 
@@ -738,12 +793,22 @@ export const setUserStatus = async (req, res) => {
 
 export const setCompanyAccess = async (req, res) => {
   try {
-    const { companyId, role, permissions = [] } = req.body;
+    const { companyId, role, permissions = [], accessScope = "COMPANY" } = req.body;
 
     if (!companyId || !role) {
       return res.status(400).json({
         success: false,
         message: "companyId and role are required.",
+      });
+    }
+
+    if (!["COMPANY", "CHATBOTS"].includes(accessScope)) {
+      return res.status(400).json({ success: false, message: "accessScope must be COMPANY or CHATBOTS." });
+    }
+    if (accessScope === "CHATBOTS" && !isRoleAllowedForChatbotScope(role)) {
+      return res.status(400).json({
+        success: false,
+        message: "A user limited to specific chatbots can't be a Company Admin. Use Chatbot Manager instead.",
       });
     }
 
@@ -843,7 +908,7 @@ export const setCompanyAccess = async (req, res) => {
 
     const access = await UserCompanyAccess.findOneAndUpdate(
       { userId: req.params.id, companyId },
-      { role, permissions, status: "ACTIVE" },
+      { role, permissions, status: "ACTIVE", accessScope },
       { upsert: true, new: true }
     );
 
@@ -852,8 +917,14 @@ export const setCompanyAccess = async (req, res) => {
       resource: "AdminUser",
       resourceId: req.params.id,
       companyId,
-      metadata: { role },
+      metadata: { role, accessScope },
     });
+
+    // Narrowed from whole-company to chatbots-only: drop any company
+    // rooms the user's sockets already joined.
+    if ((existing?.accessScope || "COMPANY") === "COMPANY" && accessScope === "CHATBOTS") {
+      disconnectUserSockets(req.params.id);
+    }
 
     // Phase 17 fix — `companyId` here must stay payload-only, not a
     // room target: emitDomainEvent broadcasts to `company:<id>` for
@@ -984,36 +1055,16 @@ export const setChatbotAccess = async (req, res) => {
       }
     }
 
-    const access = await ChatbotAccess.findOneAndUpdate(
-      { userId: req.params.id, chatbotId },
-      { permissions },
-      { upsert: true, new: true }
-    );
-
-    await logAction(req, {
-      action: "ASSIGN_CHATBOT_ACCESS",
-      resource: "AdminUser",
-      resourceId: req.params.id,
-      companyId: chatbot.companyId,
-      metadata: { chatbotId },
-    });
-
-    // Phase 17 — same treatment as setCompanyAccess: a notice only,
-    // never the grant itself. DB (ChatbotAccess, just written above)
-    // remains the sole source of truth; the affected user's client
-    // reacts by resubscribing, which re-runs hasChatbotAccess from
-    // scratch on the server — this event never bypasses that check.
-    // Phase 17 fix — same reasoning as setCompanyAccess above: keep
-    // chatbotId/companyId out of the top-level room-targeting fields
-    // so this only reaches the affected user's own room, not every
-    // other admin already watching this chatbot/company.
-    emitDomainEvent(EVENTS.ACCESS_UPDATED, {
+    const { access, companyAccess } = await grantChatbotAccess(req, {
       userId: req.params.id,
-      payload: { chatbotId, companyId: chatbot.companyId, granted: true },
+      chatbot,
+      role: req.body.role,
+      permissions,
     });
 
-    return res.status(200).json({ success: true, access });
+    return res.status(200).json({ success: true, access, companyAccess });
   } catch (error) {
+    if (sendKnownError(res, error)) return;
     console.error("Set Chatbot Access Error:", error);
 
     return res.status(500).json({
@@ -1048,29 +1099,7 @@ export const removeChatbotAccess = async (req, res) => {
       }
     }
 
-    await ChatbotAccess.findOneAndDelete({
-      userId: req.params.id,
-      chatbotId,
-    });
-
-    await logAction(req, {
-      action: "REMOVE_CHATBOT_ACCESS",
-      resource: "AdminUser",
-      resourceId: req.params.id,
-      companyId: chatbot.companyId,
-      metadata: { chatbotId },
-    });
-
-    // Phase 17 — closes the gap Phase 16 flagged: this previously had
-    // no realtime treatment at all. Same approach as
-    // removeCompanyAccess: force a full reconnect rather than trying
-    // to surgically remove just this chatbot's room membership, so
-    // the very next connection re-runs hasChatbotAccess (which also
-    // re-checks company-level access — a user with company-wide
-    // access is correctly unaffected by losing only their
-    // chatbot-specific grant) from scratch instead of trusting
-    // anything cached in the existing socket.
-    disconnectUserSockets(req.params.id);
+    await revokeChatbotAccess(req, { userId: req.params.id, chatbot });
 
     return res.status(200).json({ success: true });
   } catch (error) {
@@ -1134,7 +1163,7 @@ export const getUserEffectivePermissions = async (req, res) => {
     const effectivePermissions = await resolveEffectivePermissions(access.role, companyId, access.permissionOverrides);
 
     let roleLabel = access.role;
-    if (!["COMPANY_ADMIN", "AGENT", "VIEWER", "DEVELOPER"].includes(access.role)) {
+    if (!isSystemRole(access.role)) {
       const roleDoc = await Role.findById(access.role).select("name").lean();
       roleLabel = roleDoc?.name || "Unknown Role";
     }

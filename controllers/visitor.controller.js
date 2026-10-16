@@ -102,7 +102,6 @@ export const saveVisitor = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      error: error.message,
     });
   }
 };
@@ -151,7 +150,6 @@ export const saveEmail = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      error: error.message,
     });
   }
 };
@@ -199,7 +197,6 @@ export const updateVisitorName = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      error: error.message,
     });
   }
 };

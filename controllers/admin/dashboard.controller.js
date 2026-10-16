@@ -4,15 +4,25 @@ import AdminUser from "../../models/adminUser.model.js";
 import Visitor from "../../models/visitor.model.js";
 import VisitorMessage from "../../models/user.model.js";
 import AuditLog from "../../models/auditLog.model.js";
-import { getAccessibleCompanyIds } from "../../services/admin/access.service.js";
+import {
+  getAccessibleCompanyIds,
+  getVisibleCompanyIds,
+  getScopeFilter,
+} from "../../services/admin/access.service.js";
 
 export const getDashboard = async (req, res) => {
   try {
     const requester = req.adminUser;
-    const accessibleIds = await getAccessibleCompanyIds(requester);
-    const companyFilter =
-      accessibleIds !== null ? { companyId: { $in: accessibleIds } } : {};
-    const chatbotFilter = { ...companyFilter, deletedAt: null };
+    const [accessibleIds, visibleIds, dataFilter, chatbotScope] = await Promise.all([
+      getAccessibleCompanyIds(requester),
+      getVisibleCompanyIds(requester),
+      // Visitors/messages — chatbot-scoped users only count their
+      // own chatbots' records.
+      getScopeFilter(requester),
+      getScopeFilter(requester, { chatbotField: "_id" }),
+    ]);
+    const companyFilter = visibleIds !== null ? { companyId: { $in: visibleIds } } : {};
+    const chatbotFilter = { ...chatbotScope, deletedAt: null };
 
     const [
       companyCount,
@@ -28,8 +38,8 @@ export const getDashboard = async (req, res) => {
       requester.role === "SUPER_ADMIN"
         ? AdminUser.countDocuments({})
         : Promise.resolve(null),
-      Visitor.countDocuments(companyFilter),
-      VisitorMessage.countDocuments(companyFilter),
+      Visitor.countDocuments(dataFilter),
+      VisitorMessage.countDocuments(dataFilter),
       AuditLog.find(
         accessibleIds !== null ? { companyId: { $in: accessibleIds } } : {}
       )

@@ -3,7 +3,7 @@ import Company from "../../models/company.model.js";
 import Chatbot from "../../models/chatbot.model.js";
 import UserMessage from "../../models/user.model.js";
 import Conversation from "../../models/conversation.model.js";
-import { getAccessibleCompanyIds, hasChatbotAccess } from "../../services/admin/access.service.js";
+import { hasCompanyAccess, hasChatbotAccess, getScopeFilter } from "../../services/admin/access.service.js";
 import { ACTIVE_THRESHOLD_MS } from "../../services/analytics.service.js";
 
 // ======================================================
@@ -18,6 +18,15 @@ import { ACTIVE_THRESHOLD_MS } from "../../services/analytics.service.js";
 //   NEW:       totalVisits <= 1 (has never returned for a second visit)
 //   RETURNING: totalVisits > 1
 // ======================================================
+
+/**
+ * Company-scoped users see every visitor in their company; chatbot-
+ * scoped users only visitors attributed to one of their chatbots.
+ */
+async function canSeeVisitor(requester, visitor) {
+  if (await hasCompanyAccess(requester, visitor.companyId)) return true;
+  return !!visitor.chatbotId && (await hasChatbotAccess(requester, visitor.chatbotId));
+}
 
 export const listVisitors = async (req, res) => {
   try {
@@ -52,23 +61,21 @@ export const listVisitors = async (req, res) => {
       filter.totalVisits = { $gt: 1 };
     }
 
-    const accessibleIds = await getAccessibleCompanyIds(requester);
-
-    if (chatbotId) {
-      if (!(await hasChatbotAccess(requester, chatbotId))) {
-        return res.status(403).json({ success: false, message: "You don't have permission to access this resource." });
-      }
-      const chatbot = await Chatbot.findById(chatbotId).select("companyId").lean();
-      if (!chatbot) return res.status(404).json({ success: false, message: "Chatbot not found." });
-      filter.companyId = chatbot.companyId;
-    } else if (companyId) {
-      if (accessibleIds !== null && !accessibleIds.includes(companyId)) {
-        return res.status(403).json({ success: false, message: "You don't have permission to access this resource." });
-      }
-      filter.companyId = companyId;
-    } else if (accessibleIds !== null) {
-      filter.companyId = { $in: accessibleIds };
+    if (chatbotId && !(await Chatbot.exists({ _id: chatbotId }))) {
+      return res.status(404).json({ success: false, message: "Chatbot not found." });
     }
+
+    let scope;
+    try {
+      scope = await getScopeFilter(requester, { companyId: companyId || null, chatbotId: chatbotId || null });
+    } catch (err) {
+      if (err.status === 403) return res.status(403).json({ success: false, message: err.message });
+      throw err;
+    }
+    // $and so the scope's own $or (if any) never collides with the
+    // search $or above.
+    if (scope.$or) filter.$and = [{ $or: scope.$or }];
+    else Object.assign(filter, scope);
 
     const [visitors, total] = await Promise.all([
       Visitor.find(filter)
@@ -121,8 +128,7 @@ export const getVisitorDetail = async (req, res) => {
       return res.status(404).json({ success: false, message: "Visitor not found." });
     }
 
-    const accessibleIds = await getAccessibleCompanyIds(requester);
-    if (accessibleIds !== null && !accessibleIds.includes(visitor.companyId)) {
+    if (!(await canSeeVisitor(requester, visitor))) {
       return res.status(403).json({ success: false, message: "You don't have permission to access this resource." });
     }
 
@@ -169,17 +175,22 @@ export const getVisitorTimeline = async (req, res) => {
     const visitor = await Visitor.findById(req.params.id).lean();
     if (!visitor) return res.status(404).json({ success: false, message: "Visitor not found." });
 
-    const accessibleIds = await getAccessibleCompanyIds(requester);
-    if (accessibleIds !== null && !accessibleIds.includes(visitor.companyId)) {
+    if (!(await canSeeVisitor(requester, visitor))) {
       return res.status(403).json({ success: false, message: "You don't have permission to access this resource." });
     }
 
     const UserModel = (await import("../../models/user.model.js")).default;
     const Bot = (await import("../../models/bot.model.js")).default;
 
+    // Chatbot-scoped: only this visitor's messages to their chatbot.
+    const messageFilter = { companyId: visitor.companyId, visitorId: visitor.visitorId };
+    if (!(await hasCompanyAccess(requester, visitor.companyId))) {
+      messageFilter.chatbotId = { $in: [visitor.chatbotId, null] };
+    }
+
     const [userMsgs, botMsgs] = await Promise.all([
-      UserModel.find({ companyId: visitor.companyId, visitorId: visitor.visitorId }).select("text createdAt").sort({ createdAt: 1 }).lean(),
-      Bot.find({ companyId: visitor.companyId, visitorId: visitor.visitorId }).select("text type agentName createdAt").sort({ createdAt: 1 }).lean(),
+      UserModel.find(messageFilter).select("text createdAt").sort({ createdAt: 1 }).lean(),
+      Bot.find(messageFilter).select("text type agentName createdAt").sort({ createdAt: 1 }).lean(),
     ]);
 
     const events = [

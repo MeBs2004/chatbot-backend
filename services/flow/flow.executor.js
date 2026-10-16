@@ -345,7 +345,7 @@ export async function executeTurn({ company, chatbotId, flow, visitorId, incomin
 
     if (node.type === "humanHandoff") {
       outputParts.push(substitute(node.data?.message || "", vars));
-      await Bot.create({ companyId, visitorId, sender: "bot", type: "handoff", text: outputParts[outputParts.length - 1] });
+      await Bot.create({ companyId, visitorId, chatbotId, sender: "bot", type: "handoff", text: outputParts[outputParts.length - 1] });
       session.status = "HANDED_OFF";
       currentNodeId = null;
       break;

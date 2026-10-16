@@ -24,7 +24,6 @@ export const getSuggestions = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to load suggestions.",
-      error: error.message,
     });
   }
 };

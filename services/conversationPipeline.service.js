@@ -45,7 +45,7 @@ import crypto from "crypto";
 // layer creates the Bot doc).
 // ======================================================
 
-export async function processInboundText({ company, visitorId, text, language = "English", source = "widget" }) {
+export async function processInboundText({ company, visitorId, text, language = "English", source = "widget", chatbotId = null }) {
   const companyId = company.companyId;
 
   const availability = await getChatbotAvailability(companyId);
@@ -54,11 +54,11 @@ export async function processInboundText({ company, visitorId, text, language = 
       availability.reason === "offline"
         ? "This assistant is currently offline. Please check back soon."
         : "This assistant is temporarily paused. Please check back soon.";
-    await Bot.create({ companyId, visitorId, sender: "bot", type: "system", text: maintenanceMessage });
+    await Bot.create({ companyId, visitorId, chatbotId, sender: "bot", type: "system", text: maintenanceMessage });
     return { reply: maintenanceMessage };
   }
 
-  const conversation = await getOrCreateConversation(companyId, visitorId);
+  const conversation = await getOrCreateConversation(companyId, visitorId, chatbotId);
   const conversationWasCreated = conversation.createdAt.getTime() === conversation.updatedAt.getTime();
   if (conversation.source === "widget" && source !== "widget") {
     // A conversation only ever gets its source relabeled away from
@@ -97,7 +97,7 @@ export async function processInboundText({ company, visitorId, text, language = 
       });
 
       if (flowResult) {
-        await Bot.create({ companyId, visitorId, sender: "bot", type: "flow", text: flowResult.reply });
+        await Bot.create({ companyId, visitorId, chatbotId: conversation.chatbotId, sender: "bot", type: "flow", text: flowResult.reply });
         const wasHandoff = flowResult.status === "HANDED_OFF";
         await touchConversationAfterAiReply(conversation, { text: flowResult.reply, isHandoff: wasHandoff, handoffReason: "flow_node" });
         if (wasHandoff) {
@@ -122,7 +122,7 @@ export async function processInboundText({ company, visitorId, text, language = 
   if (text && needsHumanHandoff(text)) {
     const handoffMessage = `Sure! Our team will be happy to assist you.\n\n📞 Call:\n${company.contact?.phone || "Not Available"}\n\n💬 WhatsApp:\n${company.contact?.whatsapp || "Not Available"}\n\n📧 Email:\n${company.contact?.email || "Not Available"}\n`;
 
-    await Bot.create({ companyId, visitorId, sender: "bot", type: "handoff", text: handoffMessage });
+    await Bot.create({ companyId, visitorId, chatbotId: conversation.chatbotId, sender: "bot", type: "handoff", text: handoffMessage });
     await touchConversationAfterAiReply(conversation, { text: handoffMessage, isHandoff: true, handoffReason: "keyword" });
     dispatchWebhookEvent(company, "conversation.handoff", {
       chatbotId: conversation.chatbotId,
@@ -148,7 +148,7 @@ export async function processInboundText({ company, visitorId, text, language = 
       }
       const webhook = await axios.post(company.webhook.url, payload, { headers, timeout: 8000 });
       if (webhook.data?.reply) {
-        await Bot.create({ companyId, visitorId, sender: "bot", text: webhook.data.reply });
+        await Bot.create({ companyId, visitorId, chatbotId: conversation.chatbotId, sender: "bot", text: webhook.data.reply });
         await touchConversationAfterAiReply(conversation, { text: webhook.data.reply });
         return { reply: webhook.data.reply, conversation };
       }
@@ -167,7 +167,7 @@ export async function processInboundText({ company, visitorId, text, language = 
 
   const extraInstruction = await getSectorInstructionForChatbot(conversation.chatbotId);
   const aiReply = await askGroq({ company, message: text, language, history, chatbotId: conversation.chatbotId, extraInstruction });
-  await Bot.create({ companyId, visitorId, sender: "bot", text: aiReply });
+  await Bot.create({ companyId, visitorId, chatbotId: conversation.chatbotId, sender: "bot", text: aiReply });
   await touchConversationAfterAiReply(conversation, { text: aiReply });
 
   return { reply: aiReply, conversation };

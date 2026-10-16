@@ -5,10 +5,11 @@ import AdminUser from "../../models/adminUser.model.js";
 import UserMessage from "../../models/user.model.js";
 import Bot from "../../models/bot.model.js";
 import {
-  getAccessibleCompanyIds,
   hasCompanyAccess,
   hasChatbotAccess,
   getCompanyRole,
+  getChatbotRole,
+  getScopeFilter,
 } from "../../services/admin/access.service.js";
 import { logAction } from "../../services/admin/audit.service.js";
 import { dispatchWebhookEvent } from "../../services/webhookDispatch.service.js";
@@ -51,17 +52,33 @@ async function loadAuthorizedConversation(req, res) {
     return null;
   }
 
+  // An attributed conversation is authorized by its chatbot (covers
+  // both company-scoped and chatbot-scoped users); an unattributed
+  // one only by full company access.
   const requester = req.adminUser;
-  if (!(await hasCompanyAccess(requester, conversation.companyId))) {
-    res.status(403).json({ success: false, message: "You don't have permission to access this resource." });
-    return null;
-  }
-  if (conversation.chatbotId && !(await hasChatbotAccess(requester, conversation.chatbotId))) {
+  const allowed = conversation.chatbotId
+    ? await hasChatbotAccess(requester, conversation.chatbotId)
+    : await hasCompanyAccess(requester, conversation.companyId);
+  if (!allowed) {
     res.status(403).json({ success: false, message: "You don't have permission to access this resource." });
     return null;
   }
 
   return conversation;
+}
+
+/** The requester's role for this specific conversation. */
+function getConversationRole(requester, conversation) {
+  return conversation.chatbotId
+    ? getChatbotRole(requester, conversation.chatbotId)
+    : getCompanyRole(requester, conversation.companyId);
+}
+
+/** Can `user` see this conversation at all (e.g. as an assignee)? */
+function canSeeConversation(user, conversation) {
+  return conversation.chatbotId
+    ? hasChatbotAccess(user, conversation.chatbotId)
+    : hasCompanyAccess(user, conversation.companyId);
 }
 
 export const listConversations = async (req, res) => {
@@ -71,16 +88,12 @@ export const listConversations = async (req, res) => {
     const limit = Math.min(parseInt(req.query.limit) || 20, 100);
     const { search, companyId, status, mode, assigned } = req.query;
 
-    const filter = {};
-
-    const accessibleIds = await getAccessibleCompanyIds(requester);
-    if (companyId) {
-      if (accessibleIds !== null && !accessibleIds.includes(companyId)) {
-        return res.status(403).json({ success: false, message: "You don't have permission to access this resource." });
-      }
-      filter.companyId = companyId;
-    } else if (accessibleIds !== null) {
-      filter.companyId = { $in: accessibleIds };
+    let filter;
+    try {
+      filter = await getScopeFilter(requester, { companyId: companyId || null });
+    } catch (err) {
+      if (err.status === 403) return res.status(403).json({ success: false, message: err.message });
+      throw err;
     }
 
     if (status && ["OPEN", "PENDING", "CLOSED"].includes(status)) filter.status = status;
@@ -113,10 +126,16 @@ export const listConversations = async (req, res) => {
       if (visitorIdsForSearch.length === 0) {
         return res.status(200).json({ success: true, conversations: [], pagination: { page, limit, total: 0, pages: 1 } });
       }
-      filter.$or = [...new Set(visitorIdsForSearch)].map((key) => {
-        const [cid, vid] = key.split("::");
-        return { companyId: cid, visitorId: vid };
-      });
+      // $and, not $or at the top level — the scope filter above may
+      // already use its own $or, which this must never overwrite.
+      filter.$and = [
+        {
+          $or: [...new Set(visitorIdsForSearch)].map((key) => {
+            const [cid, vid] = key.split("::");
+            return { companyId: cid, visitorId: vid };
+          }),
+        },
+      ];
     }
 
     const [conversations, total] = await Promise.all([
@@ -183,13 +202,21 @@ export const getConversationThread = async (req, res) => {
     const before = req.query.before ? new Date(req.query.before) : null;
     const dateFilter = before ? { createdAt: { $lt: before } } : {};
 
+    // A chatbot-scoped user never sees messages the same visitor sent
+    // to a DIFFERENT chatbot of this company. Unstamped (legacy)
+    // messages belong to this conversation's chatbot.
+    const messageFilter = { companyId, visitorId, ...dateFilter };
+    if (conversation.chatbotId && !(await hasCompanyAccess(req.adminUser, companyId))) {
+      messageFilter.chatbotId = { $in: [conversation.chatbotId, null] };
+    }
+
     const [visitor, userMessages, botMessages] = await Promise.all([
       Visitor.findOne({ companyId, visitorId }).lean(),
-      UserMessage.find({ companyId, visitorId, ...dateFilter })
+      UserMessage.find(messageFilter)
         .sort({ createdAt: -1 })
         .limit(THREAD_PAGE_SIZE)
         .lean(),
-      Bot.find({ companyId, visitorId, ...dateFilter })
+      Bot.find(messageFilter)
         .sort({ createdAt: -1 })
         .limit(THREAD_PAGE_SIZE)
         .lean(),
@@ -214,7 +241,7 @@ export const getConversationThread = async (req, res) => {
     const hasMore = userMessages.length === THREAD_PAGE_SIZE || botMessages.length === THREAD_PAGE_SIZE;
 
     const requester = req.adminUser;
-    const role = await getCompanyRole(requester, companyId);
+    const role = await getConversationRole(requester, conversation);
 
     await markConversationRead(conversation);
 
@@ -251,7 +278,7 @@ export const updateConversationStatus = async (req, res) => {
     if (!conversation) return;
 
     const requester = req.adminUser;
-    const role = await getCompanyRole(requester, conversation.companyId);
+    const role = await getConversationRole(requester, conversation);
     const perms = getConversationPermissions(role);
     const { action } = req.body;
 
@@ -326,8 +353,8 @@ export const updateConversationStatus = async (req, res) => {
           }
           const targetUser = await AdminUser.findById(agentId);
           if (!targetUser) return res.status(404).json({ success: false, message: "Agent not found." });
-          if (!(await hasCompanyAccess(targetUser, conversation.companyId))) {
-            return res.status(400).json({ success: false, message: "That user doesn't have access to this company." });
+          if (!(await canSeeConversation(targetUser, conversation))) {
+            return res.status(400).json({ success: false, message: "That user doesn't have access to this conversation." });
           }
           await assignConversation(conversation, targetUser);
           metadata = { agentId, agentName: targetUser.name };
@@ -374,7 +401,7 @@ export const postAgentReply = async (req, res) => {
     if (!conversation) return;
 
     const requester = req.adminUser;
-    const role = await getCompanyRole(requester, conversation.companyId);
+    const role = await getConversationRole(requester, conversation);
     if (!getConversationPermissions(role).canReply) {
       return res.status(403).json({ success: false, message: "You don't have permission to reply to conversations." });
     }
@@ -417,7 +444,7 @@ export const addNote = async (req, res) => {
     if (!conversation) return;
 
     const requester = req.adminUser;
-    const role = await getCompanyRole(requester, conversation.companyId);
+    const role = await getConversationRole(requester, conversation);
     if (!getConversationPermissions(role).canAddNotes) {
       return res.status(403).json({ success: false, message: "You don't have permission to add notes." });
     }

@@ -64,6 +64,18 @@ const userCompanyAccessSchema = new mongoose.Schema(
       enum: ["ACTIVE", "INACTIVE"],
       default: "ACTIVE",
     },
+
+    // COMPANY  — sees everything in the company (all chatbots,
+    //            company settings, team, billing — subject to role).
+    // CHATBOTS — sees ONLY the chatbots listed in ChatbotAccess for
+    //            this user+company, and nothing company-wide. The role
+    //            then applies within those chatbots only.
+    // Existing rows default to COMPANY, so nothing changes for them.
+    accessScope: {
+      type: String,
+      enum: ["COMPANY", "CHATBOTS"],
+      default: "COMPANY",
+    },
   },
   {
     timestamps: true,
