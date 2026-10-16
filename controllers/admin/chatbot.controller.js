@@ -253,6 +253,10 @@ export const createChatbot = async (req, res) => {
       model: model || undefined,
       template: template || undefined,
       settings: safeSettings,
+      // Every new chatbot uses the config-driven widget. Set here, not
+      // as a schema default, so old documents with no stored value
+      // keep reading as legacy.
+      widgetEngineVersion: "v1",
       createdBy: requester._id,
     });
 
