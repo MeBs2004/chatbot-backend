@@ -27,6 +27,15 @@ import crypto from "crypto";
 //hello
 import axios from "axios";
 
+/**
+ * Which earlier messages the AI sees as this visitor's history: only
+ * this chatbot's (plus unstamped legacy ones), never what the visitor
+ * told a different chatbot of the same company.
+ */
+export function buildHistoryFilter({ companyId, visitorId, chatbotId }) {
+  return chatbotId ? { companyId, visitorId, chatbotId: { $in: [chatbotId, null] } } : { companyId, visitorId };
+}
+
 export const Message = async (req, res) => {
   try {
     const { text = "", language: requestedLanguage, visitorId, chatbotId: bodyChatbotId } = req.body;
@@ -573,18 +582,14 @@ if (!finalMessage.trim() && file) {
 // =========================
 
 // Fetch recent messages
-const userHistory = await User.find({
-  companyId,
-  visitorId,
-})
+const historyFilter = buildHistoryFilter({ companyId, visitorId, chatbotId: conversation.chatbotId });
+
+const userHistory = await User.find(historyFilter)
   .sort({ createdAt: -1 })
   .limit(8)
   .lean();
 
-const botHistory = await Bot.find({
-  companyId,
-  visitorId,
-})
+const botHistory = await Bot.find(historyFilter)
   .sort({ createdAt: -1 })
   .limit(8)
   .lean();
