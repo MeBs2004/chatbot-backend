@@ -51,6 +51,26 @@ export const publicTenantMiddleware = (req, res, next) =>
   req.headers["x-widget-token"] ? widgetSessionMiddleware(req, res, next) : companyMiddleware(req, res, next);
 
 /**
+ * True when the request carries a widget token that has expired — the
+ * caller should answer 401 WIDGET_TOKEN_EXPIRED so the chat iframe
+ * refreshes the token instead of showing "unavailable".
+ */
+export function hasExpiredWidgetToken(req) {
+  const token = req.headers["x-widget-token"];
+  if (!token) return false;
+  try {
+    verifyWidgetToken(token);
+    return false;
+  } catch (err) {
+    return err instanceof WidgetTokenError && err.code === "WIDGET_TOKEN_EXPIRED";
+  }
+}
+
+export function sendTokenExpired(res) {
+  return res.status(401).json({ success: false, code: "WIDGET_TOKEN_EXPIRED", message: "Widget session expired." });
+}
+
+/**
  * May this public request act for `chatbot`? A valid widget token for
  * that exact chatbot proves the session started on an allowed site;
  * without one, fall back to the Origin/Referer allowlist (old installs).

@@ -1,20 +1,38 @@
 import express from "express";
+import mongoose from "mongoose";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { createWidgetSession } from "../../controllers/widget/session.controller.js";
 
 const router = express.Router();
 
-// Public. Keyed per chatbot + IP so traffic on one chatbot can't use
-// up another chatbot's allowance.
-const sessionLimiter = rateLimit({
+const tooMany = { success: false, message: "Too many requests. Please slow down." };
+
+// Overall ceiling per IP, whatever chatbotId is sent — varying the id
+// must not buy a fresh allowance.
+const ipLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => ipKeyGenerator(req.ip),
+  message: tooMany,
+});
+
+// Per chatbot + IP, so one chatbot's traffic can't use up another's.
+// Anything that isn't a real ObjectId shares a single bucket.
+const chatbotLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 30,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => `${req.body?.chatbotId}:${ipKeyGenerator(req.ip)}`,
-  message: { success: false, message: "Too many requests. Please slow down." },
+  keyGenerator: (req) => {
+    const id = req.body?.chatbotId;
+    const bucket = typeof id === "string" && mongoose.Types.ObjectId.isValid(id) ? id : "invalid";
+    return `${bucket}:${ipKeyGenerator(req.ip)}`;
+  },
+  message: tooMany,
 });
 
-router.post("/", sessionLimiter, createWidgetSession);
+router.post("/", ipLimiter, chatbotLimiter, createWidgetSession);
 
 export default router;

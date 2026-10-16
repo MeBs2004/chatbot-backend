@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 import Chatbot from "../../models/chatbot.model.js";
 import { MARKETING_CALCULATIONS } from "../../services/sectors/marketingCalculator.service.js";
 import { calculateEnergyBom } from "../../services/sectors/energyBomCalculator.service.js";
-import { isWidgetRequestAllowed } from "../../middleware/widgetSession.middleware.js";
+import { isWidgetRequestAllowed, hasExpiredWidgetToken, sendTokenExpired } from "../../middleware/widgetSession.middleware.js";
 
 // ======================================================
 // PUBLIC SECTOR CALCULATORS — deterministic math only, no AI
@@ -23,6 +23,7 @@ async function resolveChatbot(chatbotId, req) {
 
 export const calculateMarketing = async (req, res) => {
   try {
+    if (hasExpiredWidgetToken(req)) return sendTokenExpired(res);
     const chatbot = await resolveChatbot(req.params.chatbotId, req);
     if (!chatbot) {
       return res.status(404).json({ success: false, message: "Chatbot not found." });
@@ -53,6 +54,7 @@ export const calculateMarketing = async (req, res) => {
 
 export const calculateEnergyBomPublic = async (req, res) => {
   try {
+    if (hasExpiredWidgetToken(req)) return sendTokenExpired(res);
     const chatbot = await resolveChatbot(req.params.chatbotId, req);
     if (!chatbot) {
       return res.status(404).json({ success: false, message: "Chatbot not found." });

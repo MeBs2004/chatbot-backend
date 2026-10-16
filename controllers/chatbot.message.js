@@ -144,7 +144,12 @@ console.log("MIME :", file?.mimetype);
     // the admin panel — see services/chatbotStatus.service.js)
     // =========================
 
-    const availability = await getChatbotAvailability(companyId);
+    // A widget-token request is for one chatbot: pausing THAT chatbot
+    // stops it, even while other chatbots of the company stay live.
+    const tokenChatbotDown = req.chatbot && (req.chatbot.status === "PAUSED" || req.chatbot.status === "OFFLINE");
+    const availability = tokenChatbotDown
+      ? { blocked: true, reason: req.chatbot.status === "OFFLINE" ? "offline" : "paused" }
+      : await getChatbotAvailability(companyId);
 
     if (availability.blocked) {
       const maintenanceMessage =
