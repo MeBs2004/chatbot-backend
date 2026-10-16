@@ -20,6 +20,9 @@ import {
  * trusts the frontend; this is the one place both paths funnel
  * through.
  */
+// This is a simple validation function that checks the input against a set of rules.
+
+
 export function validateAiConfigPatch(input) {
   const errors = [];
   if (!input || typeof input !== "object") return { valid: true, errors };
