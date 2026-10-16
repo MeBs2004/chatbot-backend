@@ -10,6 +10,7 @@ import visitorRoutes from "./routes/visitor.route.js";
 import adminRoutes from "./routes/admin/index.js";
 import widgetConfigRoutes from "./routes/widget/config.route.js";
 import widgetCalculatorRoutes from "./routes/widget/calculator.route.js";
+import widgetSessionRoutes from "./routes/widget/session.route.js";
 import telegramWebhookRoutes from "./routes/webhooks/telegram.route.js";
 import invitationPublicRoutes from "./routes/invitationPublic.route.js";
 import companySignupRoutes from "./routes/companySignup.route.js";
@@ -282,6 +283,8 @@ app.use("/api/admin", adminRoutes);
 // this never touches conversation logic.
 app.use("/api/widget/config", widgetConfigRoutes);
 app.use("/api/widget/calculate", widgetCalculatorRoutes);
+// Widget session token — see routes/widget/session.route.js.
+app.use("/api/widget/session", widgetSessionRoutes);
 
 // Public inbound channel webhooks (Phase 10) — authenticated per-
 // request by a provider-specific secret (see the Telegram handler),

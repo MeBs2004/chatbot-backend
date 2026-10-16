@@ -13,7 +13,8 @@
     "seed:company": "node seeders/company.seed.js",
     "seed:admin": "node seeders/adminUser.seed.js",
     "seed:chatbots": "node seeders/chatbot.seed.js",
-    "migrate:chatbot-access": "node scripts/migrateChatbotScopedAccess.mjs"
+    "migrate:chatbot-access": "node scripts/migrateChatbotScopedAccess.mjs",
+    "test": "node --test --test-concurrency=1 \"tests/**/*.test.mjs\""
   },
   "keywords": [
     "chatbot",
