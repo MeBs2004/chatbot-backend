@@ -225,6 +225,20 @@ const chatbotSchema = new mongoose.Schema(
       default: [],
     },
 
+    // Install check: websites the widget has started a session on (the
+    // Origin of POST /api/widget/session), most recent first, capped at
+    // MAX_INSTALLATIONS. Admin-only — never part of the public config.
+    installations: {
+      type: [
+        {
+          origin: { type: String, required: true },
+          lastSeenAt: { type: Date, required: true },
+          _id: false,
+        },
+      ],
+      default: [],
+    },
+
     // Sector template (Shared Engine phase) — selected once at
     // creation in the Create Chatbot wizard. Purely a configuration
     // identifier: the shared messaging pipeline (groq.service.js) and

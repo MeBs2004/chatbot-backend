@@ -1,7 +1,7 @@
 import express from "express";
 import mongoose from "mongoose";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
-import { createWidgetSession } from "../../controllers/widget/session.controller.js";
+import { createWidgetSession, getInstallInfo } from "../../controllers/widget/session.controller.js";
 
 const router = express.Router();
 
@@ -36,3 +36,7 @@ const chatbotLimiter = rateLimit({
 router.post("/", ipLimiter, chatbotLimiter, createWidgetSession);
 
 export default router;
+
+// Mounted separately at /api/widget/install-info (see index.js).
+export const installInfoRouter = express.Router();
+installInfoRouter.get("/:chatbotId", ipLimiter, getInstallInfo);

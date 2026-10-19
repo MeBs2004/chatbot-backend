@@ -4,6 +4,7 @@ import Company from "../../models/company.model.js";
 import { isOriginAllowed } from "../../services/domainAllowlist.service.js";
 import { signWidgetToken } from "../../services/widget/widgetToken.service.js";
 import { buildPublicWidgetPayload } from "./config.controller.js";
+import { recordInstallation } from "../../services/widget/installations.service.js";
 
 const notFound = (res) => res.status(404).json({ success: false, message: "Chatbot not found." });
 
@@ -14,6 +15,31 @@ const notFound = (res) => res.status(404).json({ success: false, message: "Chatb
  * the customer's site rather than the widget CDN. Every rejection is
  * the same 404 so a caller can't probe which ids or domains exist.
  */
+/**
+ * GET /api/widget/install-info/:chatbotId — the display name for the
+ * public "install this chatbot" page shared with a site's developer.
+ * Deliberately NOT domain-restricted (the developer opens it from
+ * wherever they are) and returns nothing beyond the names the widget
+ * itself already shows.
+ */
+export const getInstallInfo = async (req, res) => {
+  try {
+    const { chatbotId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(chatbotId)) return notFound(res);
+    const chatbot = await Chatbot.findById(chatbotId).select("name companyId deletedAt").lean();
+    if (!chatbot || chatbot.deletedAt) return notFound(res);
+    const company = await Company.findOne({ companyId: chatbot.companyId, isActive: true }).select("name").lean();
+    if (!company) return notFound(res);
+    return res.status(200).json({
+      success: true,
+      chatbot: { id: String(chatbot._id), name: chatbot.name, companyName: company.name },
+    });
+  } catch (error) {
+    console.error("Install Info Error:", error);
+    return res.status(500).json({ success: false, message: "Unable to load install information." });
+  }
+};
+
 export const createWidgetSession = async (req, res) => {
   try {
     const { chatbotId } = req.body || {};
@@ -30,6 +56,8 @@ export const createWidgetSession = async (req, res) => {
     if (!payload.available) return res.status(200).json(payload);
 
     const { token, expiresAt } = signWidgetToken({ chatbotId: chatbot._id, companyId: chatbot.companyId });
+    // Install check — not awaited, so it never slows the widget down.
+    recordInstallation(chatbot._id, req);
     return res.status(200).json({ ...payload, token, expiresAt });
   } catch (error) {
     console.error("Widget Session Error:", error);
