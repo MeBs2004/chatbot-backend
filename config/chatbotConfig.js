@@ -19,6 +19,8 @@ export const DEFAULT_CHATBOT_CONFIG = {
     greetingMessage: "How can we help you today?",
     showNotificationBadge: true,
     showOnMobile: true,
+    // Rotating bubbles above the launcher; empty = greeting only.
+    teaserMessages: [],
   },
   chatWindow: {
     theme: "light",

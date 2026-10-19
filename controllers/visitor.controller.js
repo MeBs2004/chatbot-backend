@@ -30,6 +30,7 @@ export const saveVisitor = async (req, res) => {
       existingVisitor.page = req.body.page;
       existingVisitor.status = "online";
       existingVisitor.totalVisits += 1;
+      if (req.chatbot) existingVisitor.chatbotId = req.chatbot._id;
 
       await existingVisitor.save();
 
@@ -38,11 +39,7 @@ export const saveVisitor = async (req, res) => {
         payload: { visitorId: existingVisitor.visitorId, changedFields: ["lastVisit", "page", "status", "totalVisits"] },
       });
 
-      return res.status(200).json({
-        success: true,
-        message: "Visitor updated",
-        visitor: existingVisitor,
-      });
+      return res.status(200).json({ success: true });
     }
 
     let geoData = {};
@@ -85,6 +82,7 @@ export const saveVisitor = async (req, res) => {
       status: "online",
       totalVisits: 1,
       totalMessages: 0,
+      chatbotId: req.chatbot?._id || null,
     });
 
     emitDomainEvent(EVENTS.VISITOR_CREATED, {
@@ -92,17 +90,13 @@ export const saveVisitor = async (req, res) => {
       payload: { visitorId: visitor.visitorId },
     });
 
-    return res.status(200).json({
-      success: true,
-      message: "New visitor created",
-      visitor,
-    });
+    // Public endpoint: never echo the Visitor document (IP, geo, email).
+    return res.status(200).json({ success: true });
   } catch (error) {
     console.error("Visitor Error:", error);
 
     return res.status(500).json({
       success: false,
-      error: error.message,
     });
   }
 };
@@ -141,17 +135,12 @@ export const saveEmail = async (req, res) => {
       });
     }
 
-    return res.status(200).json({
-      success: true,
-      message: "Email saved successfully",
-      visitor,
-    });
+    return res.status(200).json({ success: true });
   } catch (error) {
     console.log(error);
 
     return res.status(500).json({
       success: false,
-      error: error.message,
     });
   }
 };
@@ -190,16 +179,12 @@ export const updateVisitorName = async (req, res) => {
       });
     }
 
-    return res.status(200).json({
-      success: true,
-      visitor,
-    });
+    return res.status(200).json({ success: true });
   } catch (error) {
     console.log(error);
 
     return res.status(500).json({
       success: false,
-      error: error.message,
     });
   }
 };

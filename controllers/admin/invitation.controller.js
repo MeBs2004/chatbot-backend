@@ -9,7 +9,7 @@ import { assertMemberQuota, QuotaExceededError } from "../../services/billing/qu
 import { isValidRoleForCompany } from "../../services/admin/role.service.js";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const COMPANY_ROLES = ["COMPANY_ADMIN", "AGENT", "VIEWER", "DEVELOPER"];
+const COMPANY_ROLES = ["COMPANY_ADMIN", "CHATBOT_MANAGER", "AGENT", "VIEWER", "DEVELOPER"];
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 // ======================================================

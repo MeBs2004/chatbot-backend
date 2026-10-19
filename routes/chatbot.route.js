@@ -1,5 +1,5 @@
 import express from "express";
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import upload from "../middleware/upload.middleware.js";
 import { Message } from "../controllers/chatbot.message.js";
 
@@ -19,6 +19,10 @@ const messageLimiter = rateLimit({
   max: 30,
   standardHeaders: true,
   legacyHeaders: false,
+  // Per chatbot + IP (req.chatbot is set by publicTenantMiddleware for
+  // widget-token requests), so one chatbot's traffic can't use up
+  // another's allowance.
+  keyGenerator: (req) => `${req.chatbot?._id || "-"}:${ipKeyGenerator(req.ip)}`,
   message: { success: false, message: "Too many messages. Please slow down." },
 });
 

@@ -1,5 +1,5 @@
 import Chatbot from "../../models/chatbot.model.js";
-import { getCompanyRole } from "../../services/admin/access.service.js";
+import { getChatbotRole } from "../../services/admin/access.service.js";
 import { logAction } from "../../services/admin/audit.service.js";
 import { validateFlow } from "../../validators/flow.validator.js";
 import * as flowService from "../../services/flow/flow.service.js";
@@ -21,13 +21,11 @@ async function loadAuthorizedChatbot(req, res) {
     return null;
   }
 
-  const requester = req.adminUser;
-  if (requester.role !== "SUPER_ADMIN") {
-    const role = await getCompanyRole(requester, chatbot.companyId);
-    if (role !== "COMPANY_ADMIN") {
-      res.status(403).json({ success: false, message: "You don't have permission to access this resource." });
-      return null;
-    }
+  // Company admins, and chatbot managers of THIS chatbot.
+  const role = await getChatbotRole(req.adminUser, chatbot);
+  if (!["SUPER_ADMIN", "COMPANY_ADMIN", "CHATBOT_MANAGER"].includes(role)) {
+    res.status(403).json({ success: false, message: "You don't have permission to access this resource." });
+    return null;
   }
 
   return chatbot;

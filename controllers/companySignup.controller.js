@@ -4,6 +4,7 @@ import UserCompanyAccess from "../models/userCompanyAccess.model.js";
 import { signAdminToken } from "../services/admin/token.service.js";
 import { logAction } from "../services/admin/audit.service.js";
 import { INDUSTRIES } from "../config/industries.js";
+import { slugify, invalidSlugReason } from "../utils/companySlug.js";
 
 // ======================================================
 // PUBLIC COMPANY SELF-REGISTRATION
@@ -23,43 +24,6 @@ import { INDUSTRIES } from "../config/industries.js";
 // ======================================================
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-// A chosen workspace slug must never collide with a real platform
-// route or a confusing/impersonating word. Deliberately generous —
-// this list errs toward over-blocking rather than letting something
-// ambiguous through.
-const RESERVED_SLUGS = new Set([
-  "admin", "api", "www", "app", "dashboard", "login", "logout", "signup",
-  "signin", "register", "settings", "billing", "developer", "company",
-  "companies", "super", "superadmin", "root", "system", "null", "undefined",
-  "test", "support", "help", "static", "assets", "public", "nuformly",
-  "nuform", "oya", "gemkara", "account", "accounts", "user", "users",
-  "chatbot", "chatbots", "widget", "embed", "webhook", "webhooks",
-]);
-
-const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{1,46}[a-z0-9])?$/;
-
-function slugify(input) {
-  return String(input || "")
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 48);
-}
-
-// Returns null when valid, or a user-facing reason string when not —
-// shared by both the live check-slug endpoint and final registration
-// so the two can never disagree about what's a valid slug.
-function invalidSlugReason(slug) {
-  if (!SLUG_RE.test(slug)) {
-    return "Workspace URL must be 3-48 characters: lowercase letters, numbers, and hyphens only, not starting or ending with a hyphen.";
-  }
-  if (RESERVED_SLUGS.has(slug)) {
-    return "This workspace URL is reserved. Please choose another.";
-  }
-  return null;
-}
 
 function deriveDomain(website, companyId) {
   if (website && typeof website === "string") {
@@ -82,6 +46,15 @@ function deriveDomain(website, companyId) {
 // reason, never anything about WHO owns a taken slug (no company
 // name/email leak through this public, unauthenticated endpoint).
 export const checkSlugAvailability = async (req, res) => {
+  try {
+    return await checkSlug(req, res);
+  } catch (error) {
+    console.error("Check Slug Error:", error);
+    return res.status(500).json({ success: false, message: "Unable to check availability. Please try again." });
+  }
+};
+
+async function checkSlug(req, res) {
   const slug = String(req.query.slug || "")
     .toLowerCase()
     .trim();
@@ -97,7 +70,7 @@ export const checkSlugAvailability = async (req, res) => {
 
   const existing = await Company.findOne({ companyId: slug }).select("_id").lean();
   return res.status(200).json({ success: true, available: !existing, reason: existing ? "This workspace URL is already taken." : null });
-};
+}
 
 async function generateUniqueCompanyId(companyName) {
   const base = slugify(companyName) || "company";
@@ -114,7 +87,31 @@ async function generateUniqueCompanyId(companyName) {
   throw new Error("Could not generate a unique company ID.");
 }
 
+const SIGNUP_STRING_FIELDS = [
+  "companyName", "workspaceSlug", "industry", "adminName", "email",
+  "password", "confirmPassword", "website", "phone", "companySize",
+];
+
+// Every async step below (including validation) runs inside this
+// try — Express 4 does not catch a rejected async handler, so an
+// uncaught throw would leave the request hanging with no response.
 export const registerCompany = async (req, res) => {
+  try {
+    // Non-string values (numbers, arrays, objects) would crash the
+    // .trim() calls below and could smuggle Mongo query operators
+    // into the lookups — reject them up front.
+    const body = req.body || {};
+    if (SIGNUP_STRING_FIELDS.some((f) => body[f] !== undefined && typeof body[f] !== "string")) {
+      return res.status(400).json({ success: false, message: "Invalid request." });
+    }
+    return await register(req, res);
+  } catch (error) {
+    console.error("Company Self-Registration Error:", error);
+    return res.status(500).json({ success: false, message: "Failed to create your company. Please try again." });
+  }
+};
+
+async function register(req, res) {
   const {
     companyName = "",
     workspaceSlug = "",
@@ -270,4 +267,4 @@ export const registerCompany = async (req, res) => {
     }
     return res.status(500).json({ success: false, message: "Failed to create your company. Please try again." });
   }
-};
+}

@@ -23,6 +23,15 @@ const chatbotAccessSchema = new mongoose.Schema(
       index: true,
     },
 
+    // Denormalized from the Chatbot so "which chatbots in company X is
+    // this user assigned to" is a single indexed query. Backfilled by
+    // scripts/migrateChatbotScopedAccess.mjs.
+    companyId: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+
     permissions: {
       type: [String],
       default: [],
@@ -34,5 +43,6 @@ const chatbotAccessSchema = new mongoose.Schema(
 );
 
 chatbotAccessSchema.index({ userId: 1, chatbotId: 1 }, { unique: true });
+chatbotAccessSchema.index({ userId: 1, companyId: 1 });
 
 export default mongoose.model("ChatbotAccess", chatbotAccessSchema);

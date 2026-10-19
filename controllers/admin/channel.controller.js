@@ -1,6 +1,6 @@
 import Chatbot from "../../models/chatbot.model.js";
 import ChannelConnection from "../../models/channelConnection.model.js";
-import { hasChatbotAccess, getCompanyRole } from "../../services/admin/access.service.js";
+import { hasChatbotAccess, getChatbotRole } from "../../services/admin/access.service.js";
 import { logAction } from "../../services/admin/audit.service.js";
 import { CHANNEL_PROVIDERS } from "../../integrations/registry.js";
 import * as telegramProvider from "../../integrations/providers/telegram.provider.js";
@@ -31,9 +31,10 @@ async function loadAuthorizedChatbot(req, res) {
 // "webhooks, technical configuration" is explicitly in the
 // DEVELOPER role's scope), everyone else keeps the original
 // COMPANY_ADMIN-or-SUPER_ADMIN gate unchanged.
-function requireCompanyAdmin(req, res, companyId) {
-  return getCompanyRole(req.adminUser, companyId).then((role) => {
-    if (!["SUPER_ADMIN", "COMPANY_ADMIN", "DEVELOPER"].includes(role)) {
+// CHATBOT_MANAGER may manage channels of the chatbots they can access.
+function requireCompanyAdmin(req, res, chatbot) {
+  return getChatbotRole(req.adminUser, chatbot).then((role) => {
+    if (!["SUPER_ADMIN", "COMPANY_ADMIN", "CHATBOT_MANAGER", "DEVELOPER"].includes(role)) {
       res.status(403).json({ success: false, message: "You don't have permission to manage integrations." });
       return false;
     }
@@ -79,7 +80,7 @@ export const updateWebsiteChannel = async (req, res) => {
   try {
     const chatbot = await loadAuthorizedChatbot(req, res);
     if (!chatbot) return;
-    if (!(await requireCompanyAdmin(req, res, chatbot.companyId))) return;
+    if (!(await requireCompanyAdmin(req, res, chatbot))) return;
 
     const { allowedDomains } = req.body;
     if (!Array.isArray(allowedDomains) || allowedDomains.some((d) => typeof d !== "string")) {
@@ -112,7 +113,7 @@ export const connectTelegram = async (req, res) => {
   try {
     const chatbot = await loadAuthorizedChatbot(req, res);
     if (!chatbot) return;
-    if (!(await requireCompanyAdmin(req, res, chatbot.companyId))) return;
+    if (!(await requireCompanyAdmin(req, res, chatbot))) return;
 
     const { botToken } = req.body;
     if (!botToken || typeof botToken !== "string") {
@@ -172,7 +173,7 @@ export const testTelegram = async (req, res) => {
   try {
     const chatbot = await loadAuthorizedChatbot(req, res);
     if (!chatbot) return;
-    if (!(await requireCompanyAdmin(req, res, chatbot.companyId))) return;
+    if (!(await requireCompanyAdmin(req, res, chatbot))) return;
 
     const connection = await ChannelConnection.findOne({ chatbotId: chatbot._id, provider: "telegram" });
     if (!connection || !connection.credentialsEncrypted) {
@@ -210,7 +211,7 @@ export const disconnectTelegram = async (req, res) => {
   try {
     const chatbot = await loadAuthorizedChatbot(req, res);
     if (!chatbot) return;
-    if (!(await requireCompanyAdmin(req, res, chatbot.companyId))) return;
+    if (!(await requireCompanyAdmin(req, res, chatbot))) return;
 
     const connection = await ChannelConnection.findOne({ chatbotId: chatbot._id, provider: "telegram" });
     if (!connection) {

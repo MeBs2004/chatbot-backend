@@ -45,7 +45,6 @@ export const companyMiddleware = async (req, res, next) => {
     return res.status(500).json({
       success: false,
       message: "Company middleware failed.",
-      error: error.message,
     });
   }
 };

@@ -1,4 +1,4 @@
-import { hasChatbotAccess } from "./access.service.js";
+import { getChatbotAccess } from "./access.service.js";
 import UserCompanyAccess from "../../models/userCompanyAccess.model.js";
 import Role from "../../models/role.model.js";
 
@@ -95,10 +95,21 @@ export const PERMISSIONS = Object.freeze({
   TASKS_COMPLETE: "tasks.complete",
 });
 
-// The 4 company-scoped role keys that are fixed code constants, never
-// Role documents. SUPER_ADMIN is a 5th, platform-level role (handled
-// as a universal bypass everywhere) and is also never a Role document.
-export const SYSTEM_ROLES = ["COMPANY_ADMIN", "AGENT", "VIEWER", "DEVELOPER"];
+// The company-scoped role keys that are fixed code constants, never
+// Role documents. SUPER_ADMIN is a platform-level role (handled as a
+// universal bypass everywhere) and is also never a Role document.
+// CHATBOT_MANAGER runs the chatbots they can see (settings, flow,
+// channels, install, conversations) but never the company itself
+// (team, billing, company-shared AI settings/knowledge).
+export const SYSTEM_ROLES = ["COMPANY_ADMIN", "CHATBOT_MANAGER", "AGENT", "VIEWER", "DEVELOPER"];
+
+// Roles a CHATBOTS-scoped access row may hold. COMPANY_ADMIN is never
+// allowed there: team-management code identifies company admins by
+// role alone, so a chatbot-scoped COMPANY_ADMIN would be able to
+// manage the whole company.
+export function isRoleAllowedForChatbotScope(roleValue) {
+  return roleValue !== "COMPANY_ADMIN" && roleValue !== "SUPER_ADMIN";
+}
 
 export function isSystemRole(roleValue) {
   return SYSTEM_ROLES.includes(roleValue);
@@ -214,6 +225,17 @@ export const ROLE_PERMISSIONS = Object.freeze({
     ...TEAM_MANAGEMENT_PERMISSIONS,
     ...TASK_MANAGEMENT_PERMISSIONS,
   ],
+  CHATBOT_MANAGER: [
+    ...READ_ONLY,
+    PERMISSIONS.CHATBOTS_MANAGE,
+    PERMISSIONS.CONVERSATIONS_REPLY,
+    PERMISSIONS.CONVERSATIONS_TAKEOVER,
+    PERMISSIONS.CONVERSATIONS_ASSIGN,
+    PERMISSIONS.CONVERSATIONS_CLOSE,
+    PERMISSIONS.INTEGRATIONS_MANAGE,
+    PERMISSIONS.INSTALLATION_MANAGE,
+    ...TASK_SELF_SERVICE_PERMISSIONS,
+  ],
   AGENT: [
     ...READ_ONLY,
     PERMISSIONS.CONVERSATIONS_REPLY,
@@ -293,11 +315,10 @@ export async function resolveEffectivePermissions(roleValue, companyId, override
  *   1. authenticated identity (the passed-in adminUser)
  *   2. platform role (SUPER_ADMIN bypasses everything)
  *   3. company access (via the existing getCompanyRole)
- *   4. chatbot access (via the existing hasChatbotAccess, only
- *      when chatbotId is provided and the permission is chatbot-
- *      scoped — company-level access already implies access to
- *      every chatbot in that company, matching hasChatbotAccess's
- *      existing, unchanged semantics)
+ *   4. chatbot access — when chatbotId is provided, the user's role
+ *      for THAT chatbot (company-scoped access covers every chatbot
+ *      in the company; chatbot-scoped access only the assigned ones).
+ *      Without chatbotId only company-scoped access counts.
  *   5. resource ownership — left to the caller (e.g. "is this
  *      conversation assigned to me") since that varies per resource
  *      and already has dedicated, tested logic in
@@ -314,23 +335,34 @@ export async function can(user, permission, { companyId, chatbotId } = {}) {
   if (!user) return false;
   if (user.role === "SUPER_ADMIN") return true;
   if (!ALL.includes(permission)) return false;
+
+  // Chatbot-level check: company-scoped users need company access,
+  // chatbot-scoped users need that chatbot assigned to them. The role
+  // + overrides of whichever row grants access then decide.
+  if (chatbotId) {
+    const access = await getChatbotAccess(user, chatbotId);
+    if (!access) return false;
+    if (companyId && access.companyId !== companyId) return false;
+    const effective = await resolveEffectivePermissions(access.role, access.companyId, access.permissionOverrides);
+    return effective.includes(permission);
+  }
+
+  // Company-level check: only COMPANY-scoped access counts. A
+  // chatbot-scoped user never holds a company-wide permission.
   if (!companyId) return false;
 
   const access = await UserCompanyAccess.findOne({
     userId: user._id,
     companyId,
     status: "ACTIVE",
+    accessScope: { $in: ["COMPANY", null] },
   })
     .select("role permissionOverrides")
     .lean();
   if (!access) return false;
 
   const effective = await resolveEffectivePermissions(access.role, companyId, access.permissionOverrides);
-  if (!effective.includes(permission)) return false;
-
-  if (chatbotId && !(await hasChatbotAccess(user, chatbotId))) return false;
-
-  return true;
+  return effective.includes(permission);
 }
 
 /**
@@ -343,7 +375,11 @@ export async function can(user, permission, { companyId, chatbotId } = {}) {
  */
 export async function getPermittedCompanyIds(user, permission) {
   if (user.role === "SUPER_ADMIN") return null;
-  const rows = await UserCompanyAccess.find({ userId: user._id, status: "ACTIVE" })
+  const rows = await UserCompanyAccess.find({
+    userId: user._id,
+    status: "ACTIVE",
+    accessScope: { $in: ["COMPANY", null] },
+  })
     .select("companyId role permissionOverrides")
     .lean();
   const permitted = [];

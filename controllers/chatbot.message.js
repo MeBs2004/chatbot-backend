@@ -17,6 +17,7 @@ import {
   ingestVisitorMessage,
   touchConversationAfterAiReply,
   getPendingAgentReplySince,
+  resolveMessageChatbotId,
 } from "../services/conversation.service.js";
 import { assertSafeWebhookUrl, WEBHOOK_MAX_RESPONSE_BYTES } from "../services/flow/flow.security.js";
 import { decryptSecret } from "../utils/encryption.js";
@@ -26,9 +27,19 @@ import crypto from "crypto";
 //hello
 import axios from "axios";
 
+/**
+ * Which earlier messages the AI sees as this visitor's history: only
+ * this chatbot's (plus unstamped legacy ones), never what the visitor
+ * told a different chatbot of the same company.
+ */
+export function buildHistoryFilter({ companyId, visitorId, chatbotId }) {
+  return chatbotId ? { companyId, visitorId, chatbotId: { $in: [chatbotId, null] } } : { companyId, visitorId };
+}
+
 export const Message = async (req, res) => {
   try {
-    const { text = "", language: requestedLanguage, visitorId, chatbotId: requestedChatbotId } = req.body;
+    const { text = "", language: requestedLanguage, visitorId, chatbotId: bodyChatbotId } = req.body;
+    let requestedChatbotId = bodyChatbotId;
 const file = req.file;
     const company = req.company;
 
@@ -46,7 +57,15 @@ const file = req.file;
     // The legacy Bot.jsx/OyaBot.jsx widgets never send this field, so
     // they're completely unaffected — same as every other v1-only
     // feature added this session.
-    if (requestedChatbotId) {
+    // Widget-token request (widgetSessionMiddleware): the token already
+    // fixed the chatbot and its company — a body chatbotId may only
+    // repeat it, never switch to another one.
+    if (req.chatbot) {
+      if (bodyChatbotId && String(bodyChatbotId) !== String(req.chatbot._id)) {
+        return res.status(404).json({ success: false, message: "Chatbot not found." });
+      }
+      requestedChatbotId = req.chatbot._id;
+    } else if (requestedChatbotId) {
       const targetChatbot = await Chatbot.findById(requestedChatbotId).select("companyId deletedAt allowedDomains").lean();
       if (!targetChatbot || targetChatbot.deletedAt || targetChatbot.companyId !== company.companyId || !isOriginAllowed(targetChatbot.allowedDomains, req)) {
         return res.status(404).json({ success: false, message: "Chatbot not found." });
@@ -60,6 +79,11 @@ const file = req.file;
     const language = requestedLanguage || company.ai?.language || "English";
 
     const companyId = company.companyId;
+
+    // Which chatbot this turn belongs to — stamped on the visitor,
+    // both messages and the conversation so chatbot-scoped admins see
+    // exactly their chatbot's data (see services/admin/access.service.js).
+    const chatbotId = await resolveMessageChatbotId(companyId, visitorId, requestedChatbotId || null);
 // Allow either text OR file
 if ((!text || !text.trim()) && !file) {
   return res.status(400).json({
@@ -90,6 +114,7 @@ console.log("MIME :", file?.mimetype);
             lastVisit: new Date(),
             lastMessage: text,
             status: "online",
+            ...(chatbotId && { chatbotId }),
           },
         },
         {
@@ -105,6 +130,7 @@ console.log("MIME :", file?.mimetype);
    const userMessage = await User.create({
   companyId,
   visitorId,
+  chatbotId,
   sender: "user",
   text:
     text && text.trim()
@@ -118,7 +144,12 @@ console.log("MIME :", file?.mimetype);
     // the admin panel — see services/chatbotStatus.service.js)
     // =========================
 
-    const availability = await getChatbotAvailability(companyId);
+    // A widget-token request is for one chatbot: pausing THAT chatbot
+    // stops it, even while other chatbots of the company stay live.
+    const tokenChatbotDown = req.chatbot && (req.chatbot.status === "PAUSED" || req.chatbot.status === "OFFLINE");
+    const availability = tokenChatbotDown
+      ? { blocked: true, reason: req.chatbot.status === "OFFLINE" ? "offline" : "paused" }
+      : await getChatbotAvailability(companyId);
 
     if (availability.blocked) {
       const maintenanceMessage =
@@ -129,6 +160,7 @@ console.log("MIME :", file?.mimetype);
       await Bot.create({
         companyId,
         visitorId,
+        chatbotId,
         sender: "bot",
         type: "system",
         text: maintenanceMessage,
@@ -152,7 +184,7 @@ console.log("MIME :", file?.mimetype);
     // what delivers any agent reply that was waiting.
     // =========================
 
-    const conversation = await getOrCreateConversation(companyId, visitorId);
+    const conversation = await getOrCreateConversation(companyId, visitorId, chatbotId);
     const previousVisitorMessageAt = conversation.lastVisitorMessageAt;
     // A brand-new document's createdAt/updatedAt are set to the same
     // instant by Mongoose; any subsequent .save() (ingestVisitorMessage
@@ -233,6 +265,7 @@ console.log("MIME :", file?.mimetype);
           await Bot.create({
             companyId,
             visitorId,
+            chatbotId: conversation.chatbotId,
             sender: "bot",
             type: "flow",
             text: flowResult.reply,
@@ -297,6 +330,7 @@ ${company.contact?.email || "Not Available"}
      await Bot.create({
   companyId,
   visitorId,
+  chatbotId: conversation.chatbotId,
   sender: "bot",
   type: "handoff",
   text: handoffMessage,
@@ -370,6 +404,7 @@ ${company.contact?.email || "Not Available"}
           await Bot.create({
   companyId,
   visitorId,
+  chatbotId: conversation.chatbotId,
   sender: "bot",
   text: webhook.data.reply,
 });
@@ -552,18 +587,14 @@ if (!finalMessage.trim() && file) {
 // =========================
 
 // Fetch recent messages
-const userHistory = await User.find({
-  companyId,
-  visitorId,
-})
+const historyFilter = buildHistoryFilter({ companyId, visitorId, chatbotId: conversation.chatbotId });
+
+const userHistory = await User.find(historyFilter)
   .sort({ createdAt: -1 })
   .limit(8)
   .lean();
 
-const botHistory = await Bot.find({
-  companyId,
-  visitorId,
-})
+const botHistory = await Bot.find(historyFilter)
   .sort({ createdAt: -1 })
   .limit(8)
   .lean();
@@ -592,6 +623,7 @@ const aiReply = await askGroq({
 await Bot.create({
   companyId,
   visitorId,
+  chatbotId: conversation.chatbotId,
   sender: "bot",
   text: aiReply,
 });
@@ -609,7 +641,6 @@ return res.status(200).json({
   return res.status(500).json({
     success: false,
     message: "Internal Server Error",
-    error: error.message,
   });
 }
 };

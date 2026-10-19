@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 import Chatbot from "../../models/chatbot.model.js";
 import { MARKETING_CALCULATIONS } from "../../services/sectors/marketingCalculator.service.js";
 import { calculateEnergyBom } from "../../services/sectors/energyBomCalculator.service.js";
-import { isOriginAllowed } from "../../services/domainAllowlist.service.js";
+import { isWidgetRequestAllowed, hasExpiredWidgetToken, sendTokenExpired } from "../../middleware/widgetSession.middleware.js";
 
 // ======================================================
 // PUBLIC SECTOR CALCULATORS — deterministic math only, no AI
@@ -17,12 +17,13 @@ async function resolveChatbot(chatbotId, req) {
   if (!mongoose.Types.ObjectId.isValid(chatbotId)) return null;
   const chatbot = await Chatbot.findById(chatbotId).select("template deletedAt status allowedDomains").lean();
   if (!chatbot || chatbot.deletedAt) return null;
-  if (!isOriginAllowed(chatbot.allowedDomains, req)) return null;
+  if (!isWidgetRequestAllowed(req, chatbot)) return null;
   return chatbot;
 }
 
 export const calculateMarketing = async (req, res) => {
   try {
+    if (hasExpiredWidgetToken(req)) return sendTokenExpired(res);
     const chatbot = await resolveChatbot(req.params.chatbotId, req);
     if (!chatbot) {
       return res.status(404).json({ success: false, message: "Chatbot not found." });
@@ -53,6 +54,7 @@ export const calculateMarketing = async (req, res) => {
 
 export const calculateEnergyBomPublic = async (req, res) => {
   try {
+    if (hasExpiredWidgetToken(req)) return sendTokenExpired(res);
     const chatbot = await resolveChatbot(req.params.chatbotId, req);
     if (!chatbot) {
       return res.status(404).json({ success: false, message: "Chatbot not found." });

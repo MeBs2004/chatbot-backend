@@ -2,7 +2,34 @@ import mongoose from "mongoose";
 import Chatbot from "../../models/chatbot.model.js";
 import Company from "../../models/company.model.js";
 import { mergeChatbotConfig } from "../../config/chatbotConfig.js";
-import { isOriginAllowed } from "../../services/domainAllowlist.service.js";
+import { isWidgetRequestAllowed, hasExpiredWidgetToken, sendTokenExpired } from "../../middleware/widgetSession.middleware.js";
+
+/**
+ * The public-safe payload for one chatbot, shared by
+ * GET /api/widget/config/:chatbotId and POST /api/widget/session.
+ * Paused/offline chatbots get `available: false` and nothing else
+ * (same status enum as chatbot.model.js).
+ */
+export function buildPublicWidgetPayload(chatbot, company) {
+  if (chatbot.status === "PAUSED" || chatbot.status === "OFFLINE") {
+    return {
+      success: true,
+      available: false,
+      reason: chatbot.status === "OFFLINE" ? "offline" : "paused",
+    };
+  }
+  return {
+    success: true,
+    available: true,
+    chatbot: {
+      id: chatbot._id,
+      name: chatbot.name,
+      companyName: company?.name || "",
+      template: chatbot.template || "general",
+    },
+    config: mergeChatbotConfig(chatbot.config),
+  };
+}
 
 /**
  * Public, unauthenticated endpoint — the widget-config counterpart
@@ -30,38 +57,20 @@ export const getPublicWidgetConfig = async (req, res) => {
       return res.status(404).json({ success: false, message: "Chatbot not found." });
     }
 
-    if (!isOriginAllowed(chatbot.allowedDomains, req)) {
+    if (hasExpiredWidgetToken(req)) return sendTokenExpired(res);
+
+    if (!isWidgetRequestAllowed(req, chatbot)) {
       // Same 404 shape as "doesn't exist" — a caller probing from an
       // unauthorized origin learns nothing about whether the
       // chatbotId is even valid.
       return res.status(404).json({ success: false, message: "Chatbot not found." });
     }
 
-    // Same enum as everywhere else in the project (chatbot.model.js)
-    // — not inventing new status values here.
-    if (chatbot.status === "PAUSED" || chatbot.status === "OFFLINE") {
-      return res.status(200).json({
-        success: true,
-        available: false,
-        reason: chatbot.status === "OFFLINE" ? "offline" : "paused",
-      });
-    }
-
     const company = await Company.findOne({ companyId: chatbot.companyId })
       .select("name")
       .lean();
 
-    return res.status(200).json({
-      success: true,
-      available: true,
-      chatbot: {
-        id: chatbot._id,
-        name: chatbot.name,
-        companyName: company?.name || "",
-        template: chatbot.template || "general",
-      },
-      config: mergeChatbotConfig(chatbot.config),
-    });
+    return res.status(200).json(buildPublicWidgetPayload(chatbot, company));
   } catch (error) {
     // Never leak internals to a public, unauthenticated caller.
     console.error("Public Widget Config Error:", error);

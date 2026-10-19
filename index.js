@@ -10,12 +10,13 @@ import visitorRoutes from "./routes/visitor.route.js";
 import adminRoutes from "./routes/admin/index.js";
 import widgetConfigRoutes from "./routes/widget/config.route.js";
 import widgetCalculatorRoutes from "./routes/widget/calculator.route.js";
+import widgetSessionRoutes, { installInfoRouter } from "./routes/widget/session.route.js";
 import telegramWebhookRoutes from "./routes/webhooks/telegram.route.js";
 import invitationPublicRoutes from "./routes/invitationPublic.route.js";
 import companySignupRoutes from "./routes/companySignup.route.js";
 import developerApiRoutes from "./routes/developerApi.route.js";
 
-import companyMiddleware from "./middleware/company.middleware.js";
+import { publicTenantMiddleware } from "./middleware/widgetSession.middleware.js";
 import { initRealtime } from "./services/realtime/socket.server.js";
 import { migrateKnowledgeFromDisk } from "./services/knowledge.migration.js";
 
@@ -131,7 +132,7 @@ app.use((req, res, next) => {
 
     res.header(
       "Access-Control-Allow-Headers",
-      "Content-Type, Authorization, x-company-id"
+      "Content-Type, Authorization, x-company-id, x-widget-token"
     );
 
     res.header("Access-Control-Max-Age", "86400");
@@ -249,28 +250,28 @@ app.get("/health", (req, res) => {
 // Company
 app.use(
   "/bot/v1/company",
-  companyMiddleware,
+  publicTenantMiddleware,
   companyRoutes
 );
 
 // Chatbot
 app.use(
   "/bot/v1",
-  companyMiddleware,
+  publicTenantMiddleware,
   chatbotRoutes
 );
 
 // Suggestions
 app.use(
   "/bot/v1/suggestions",
-  companyMiddleware,
+  publicTenantMiddleware,
   suggestionRoutes
 );
 
 // Visitor
 app.use(
   "/bot/v1/visitor",
-  companyMiddleware,
+  publicTenantMiddleware,
   visitorRoutes
 );
 
@@ -282,6 +283,10 @@ app.use("/api/admin", adminRoutes);
 // this never touches conversation logic.
 app.use("/api/widget/config", widgetConfigRoutes);
 app.use("/api/widget/calculate", widgetCalculatorRoutes);
+// Widget session token — see routes/widget/session.route.js.
+app.use("/api/widget/session", widgetSessionRoutes);
+// Public install page info (name only) — see getInstallInfo.
+app.use("/api/widget/install-info", installInfoRouter);
 
 // Public inbound channel webhooks (Phase 10) — authenticated per-
 // request by a provider-specific secret (see the Telegram handler),

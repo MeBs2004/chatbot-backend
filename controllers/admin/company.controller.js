@@ -23,6 +23,7 @@ import { emitDomainEvent } from "../../services/realtime/io.js";
 import { EVENTS } from "../../services/realtime/events.js";
 import { invalidateKnowledgeCache } from "../../services/groq.service.js";
 import { INDUSTRIES, COMPANY_SIZES } from "../../config/industries.js";
+import { invalidSlugReason } from "../../utils/companySlug.js";
 
 // Phase 10: `webhook.secretEncrypted` must never leave this server —
 // every response that includes `company.webhook` goes through this
@@ -183,13 +184,28 @@ export const getCompanyDetail = async (req, res) => {
 
 export const createCompany = async (req, res) => {
   try {
-    const { companyId, name, domain, website, knowledgeFile } = req.body;
+    const { name, domain, website, knowledgeFile } = req.body;
 
-    if (!companyId || !name || !domain || !knowledgeFile) {
+    // Strings only — an object here (e.g. {"$gt": ""}) would otherwise
+    // reach the Mongo lookups below as a query operator.
+    if ([req.body.companyId, name, domain, website, knowledgeFile].some((v) => v !== undefined && typeof v !== "string")) {
+      return res.status(400).json({ success: false, message: "Invalid request." });
+    }
+
+    const companyId = (req.body.companyId || "").trim().toLowerCase();
+
+    if (!companyId || !name?.trim() || !domain?.trim() || !knowledgeFile) {
       return res.status(400).json({
         success: false,
         message: "companyId, name, domain and knowledgeFile are required.",
       });
+    }
+
+    // Same rules as public sign-up: the companyId is the tenant key
+    // every widget sends in x-company-id, so it must be a clean slug.
+    const slugError = invalidSlugReason(companyId);
+    if (slugError) {
+      return res.status(400).json({ success: false, message: slugError.replace(/workspace URL/i, "Company ID") });
     }
 
     if (!isValidKnowledgeFilename(knowledgeFile)) {
@@ -210,9 +226,9 @@ export const createCompany = async (req, res) => {
 
     const company = await Company.create({
       companyId,
-      name,
-      domain,
-      website: website || domain,
+      name: name.trim(),
+      domain: domain.trim(),
+      website: (website || domain).trim(),
       knowledgeFile,
       createdBy: req.adminUser._id,
     });
@@ -226,6 +242,10 @@ export const createCompany = async (req, res) => {
 
     return res.status(201).json({ success: true, company });
   } catch (error) {
+    // Two concurrent creates with the same companyId.
+    if (error?.code === 11000) {
+      return res.status(409).json({ success: false, message: "A company with this ID already exists." });
+    }
     console.error("Create Company Error:", error);
 
     return res.status(500).json({

@@ -12,6 +12,24 @@ import { DEFAULT_CHATBOT_CONFIG, ALLOWED_FORM_FIELDS, ALLOWED_CTA_TYPES, MAX_CTA
 // migration copies existing bots into this collection.
 // ======================================================
 
+export const MAX_TEASER_MESSAGES = 10;
+export const MAX_TEASER_LENGTH = 80;
+
+// widget.js renders these on the customer's own page, outside the
+// iframe, so they're bounded here rather than trusted from the Studio.
+const TEASER_VALIDATOR = {
+  validator: (list) =>
+    Array.isArray(list) &&
+    list.length <= MAX_TEASER_MESSAGES &&
+    list.every((m) => typeof m === "string" && m.length <= MAX_TEASER_LENGTH),
+  message: `Up to ${MAX_TEASER_MESSAGES} teaser messages, each at most ${MAX_TEASER_LENGTH} characters.`,
+};
+
+const AVATAR_URL_VALIDATOR = {
+  validator: (v) => !v || (v.length <= 500 && /^https:\/\/[^\s"'<>]+$/i.test(v)),
+  message: "Bot avatar must be an https:// image URL (max 500 characters).",
+};
+
 const HEX_VALIDATOR = {
   validator: (v) => !v || /^#([0-9A-Fa-f]{3}){1,2}$/.test(v),
   message: (props) => `${props.value} is not a valid hex color.`,
@@ -64,6 +82,13 @@ const chatbotConfigSchema = new mongoose.Schema(
       greetingMessage: { type: String, default: DEFAULT_CHATBOT_CONFIG.launcher.greetingMessage, maxlength: 160 },
       showNotificationBadge: { type: Boolean, default: DEFAULT_CHATBOT_CONFIG.launcher.showNotificationBadge },
       showOnMobile: { type: Boolean, default: DEFAULT_CHATBOT_CONFIG.launcher.showOnMobile },
+      // Mixed, not [String]: Mongoose would cast { text: "hi" } to a
+      // string instead of letting the validator reject it.
+      teaserMessages: {
+        type: [mongoose.Schema.Types.Mixed],
+        default: () => [...DEFAULT_CHATBOT_CONFIG.launcher.teaserMessages],
+        validate: TEASER_VALIDATOR,
+      },
     },
     chatWindow: {
       theme: { type: String, enum: ["light", "dark"], default: DEFAULT_CHATBOT_CONFIG.chatWindow.theme },
@@ -78,7 +103,12 @@ const chatbotConfigSchema = new mongoose.Schema(
       },
       botName: { type: String, default: DEFAULT_CHATBOT_CONFIG.chatWindow.botName, maxlength: 60, trim: true },
       companyName: { type: String, default: DEFAULT_CHATBOT_CONFIG.chatWindow.companyName, maxlength: 60, trim: true },
-      botAvatar: { type: String, default: DEFAULT_CHATBOT_CONFIG.chatWindow.botAvatar, trim: true },
+      botAvatar: {
+        type: String,
+        default: DEFAULT_CHATBOT_CONFIG.chatWindow.botAvatar,
+        trim: true,
+        validate: AVATAR_URL_VALIDATOR,
+      },
       showBranding: { type: Boolean, default: DEFAULT_CHATBOT_CONFIG.chatWindow.showBranding },
       welcomeMessage: { type: String, default: DEFAULT_CHATBOT_CONFIG.chatWindow.welcomeMessage, maxlength: 300 },
     },
@@ -192,6 +222,20 @@ const chatbotSchema = new mongoose.Schema(
     // frontend-only check.
     allowedDomains: {
       type: [{ type: String, trim: true, lowercase: true }],
+      default: [],
+    },
+
+    // Install check: websites the widget has started a session on (the
+    // Origin of POST /api/widget/session), most recent first, capped at
+    // MAX_INSTALLATIONS. Admin-only — never part of the public config.
+    installations: {
+      type: [
+        {
+          origin: { type: String, required: true },
+          lastSeenAt: { type: Date, required: true },
+          _id: false,
+        },
+      ],
       default: [],
     },
 

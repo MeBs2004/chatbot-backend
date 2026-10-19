@@ -102,7 +102,6 @@ export const getCompany = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to fetch company.",
-      error: error.message,
     });
   }
 };

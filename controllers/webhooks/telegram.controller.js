@@ -58,7 +58,7 @@ export const handleTelegramWebhook = async (req, res) => {
     // Mirrors chatbot.message.js's own division of labor: the caller
     // persists the visitor's inbound message; processInboundText only
     // persists the BOT's reply and conversation state.
-    await User.create({ companyId: company.companyId, visitorId: normalized.visitorId, sender: "user", text: normalized.text });
+    await User.create({ companyId: company.companyId, visitorId: normalized.visitorId, chatbotId: connection.chatbotId, sender: "user", text: normalized.text });
 
     // Same upsert shape as /bot/v1/visitor (the website widget's own
     // visitor-tracking call) — so a Telegram visitor shows up in the
@@ -69,7 +69,7 @@ export const handleTelegramWebhook = async (req, res) => {
       { companyId: company.companyId, visitorId: normalized.visitorId },
       {
         $inc: { totalMessages: 1 },
-        $set: { lastVisit: new Date(), lastMessage: normalized.text, status: "online", ...(normalized.fromName && { name: normalized.fromName }) },
+        $set: { lastVisit: new Date(), lastMessage: normalized.text, status: "online", chatbotId: connection.chatbotId, ...(normalized.fromName && { name: normalized.fromName }) },
         $setOnInsert: { firstVisit: new Date() },
       },
       { upsert: true }
@@ -81,6 +81,7 @@ export const handleTelegramWebhook = async (req, res) => {
       text: normalized.text,
       language: company.ai?.language || "English",
       source: "telegram",
+      chatbotId: connection.chatbotId,
     });
 
     if (reply) {

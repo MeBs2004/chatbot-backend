@@ -2,7 +2,7 @@ import Visitor from "../models/visitor.model.js";
 import Company from "../models/company.model.js";
 import Chatbot from "../models/chatbot.model.js";
 import Conversation from "../models/conversation.model.js";
-import { getAccessibleCompanyIds, hasChatbotAccess } from "./admin/access.service.js";
+import { getScopeFilter } from "./admin/access.service.js";
 
 // ======================================================
 // LIVE VIEW SERVICE
@@ -68,31 +68,16 @@ export async function getLiveView(requester, query = {}) {
 
   const filter = { lastVisit: { $gte: new Date(Date.now() - LIVE_WINDOW_MS) } };
 
-  const accessibleIds = await getAccessibleCompanyIds(requester);
-
-  if (chatbotId) {
-    if (!(await hasChatbotAccess(requester, chatbotId))) {
-      const err = new Error("You don't have permission to access this resource.");
-      err.status = 403;
-      throw err;
-    }
-    const chatbot = await Chatbot.findById(chatbotId).select("companyId").lean();
-    if (!chatbot) {
-      const err = new Error("Chatbot not found.");
-      err.status = 404;
-      throw err;
-    }
-    filter.companyId = chatbot.companyId;
-  } else if (companyId) {
-    if (accessibleIds !== null && !accessibleIds.includes(companyId)) {
-      const err = new Error("You don't have permission to access this resource.");
-      err.status = 403;
-      throw err;
-    }
-    filter.companyId = companyId;
-  } else if (accessibleIds !== null) {
-    filter.companyId = { $in: accessibleIds };
+  if (chatbotId && !(await Chatbot.exists({ _id: chatbotId }))) {
+    const err = new Error("Chatbot not found.");
+    err.status = 404;
+    throw err;
   }
+  // Throws a 403 itself if the requester can't see this company/chatbot.
+  const scope = await getScopeFilter(requester, { companyId: companyId || null, chatbotId: chatbotId || null });
+  // $and so the scope's own $or never collides with the search $or below.
+  if (scope.$or) filter.$and = [{ $or: scope.$or }];
+  else Object.assign(filter, scope);
 
   if (device === "Desktop" || device === "Mobile") filter.device = device;
 
