@@ -123,6 +123,11 @@ const visitorSchema = new mongoose.Schema(
       lowercase: true,
     },
 
+    // Collected by the chatbot's pre-chat form (config.forms) — the
+    // widget only asks for the fields the admin enabled.
+    phone: { type: String, default: "", trim: true, maxlength: 40 },
+    company: { type: String, default: "", trim: true, maxlength: 100 },
+
     // ==========================
     // Analytics
     // ==========================

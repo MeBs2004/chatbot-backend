@@ -8,6 +8,7 @@ import {
   createCompany,
   updateCompany,
   setCompanyStatus,
+  deleteCompany,
   getCompanyKnowledge,
   updateCompanyKnowledge,
   clearCompanyKnowledgeCache,
@@ -22,6 +23,7 @@ router.get("/", listCompanies);
 router.get("/:id", getCompanyDetail);
 router.post("/", requireRole("SUPER_ADMIN"), createCompany);
 router.patch("/:id", updateCompany);
+router.delete("/:id", requireRole("SUPER_ADMIN"), deleteCompany);
 router.post("/:id/status", requireRole("SUPER_ADMIN"), setCompanyStatus);
 router.get("/:id/knowledge", getCompanyKnowledge);
 router.put("/:id/knowledge", updateCompanyKnowledge);

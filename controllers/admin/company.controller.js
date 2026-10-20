@@ -4,6 +4,23 @@ import crypto from "crypto";
 import Company from "../../models/company.model.js";
 import Chatbot from "../../models/chatbot.model.js";
 import Visitor from "../../models/visitor.model.js";
+import Conversation from "../../models/conversation.model.js";
+import Bot from "../../models/bot.model.js";
+import User from "../../models/user.model.js";
+import ChatbotFlow from "../../models/chatbotFlow.model.js";
+import ChatbotAccess from "../../models/chatbotAccess.model.js";
+import ChannelConnection from "../../models/channelConnection.model.js";
+import FlowSession from "../../models/flowSession.model.js";
+import UserCompanyAccess from "../../models/userCompanyAccess.model.js";
+import ApiKey from "../../models/apiKey.model.js";
+import ApiUsage from "../../models/apiUsage.model.js";
+import DeveloperWebhook from "../../models/developerWebhook.model.js";
+import BillingAccount from "../../models/billingAccount.model.js";
+import Invoice from "../../models/invoice.model.js";
+import AIUsage from "../../models/aiUsage.model.js";
+import Role from "../../models/role.model.js";
+import Task from "../../models/task.model.js";
+import Invitation from "../../models/invitation.model.js";
 import {
   getAccessibleCompanyIds,
   hasCompanyAccess,
@@ -409,6 +426,94 @@ export const setCompanyStatus = async (req, res) => {
       success: false,
       message: "Failed to update company status.",
     });
+  }
+};
+
+// =========================================================
+// DELETE COMPANY (SUPER_ADMIN only)
+// Permanent. Removes the company and everything scoped to its
+// companyId — chatbots, flows, visitors, conversations, API keys,
+// webhooks, billing records, roles, tasks and access grants.
+// Deliberately kept: AuditLog rows (incl. the DELETE_COMPANY entry
+// written here) and the admin user accounts themselves — a user who
+// belonged to this company just loses that access.
+// The caller must echo the company's exact name in `confirmName`, so a
+// stray/scripted DELETE can't wipe a tenant by accident.
+// =========================================================
+export const deleteCompany = async (req, res) => {
+  try {
+    const company = await Company.findOne({ companyId: req.params.id });
+
+    if (!company) {
+      return res.status(404).json({ success: false, message: "Company not found." });
+    }
+
+    if ((req.body?.confirmName || "").trim() !== company.name.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "Confirmation name does not match the company name.",
+      });
+    }
+
+    const { companyId } = company;
+
+    const chatbots = await Chatbot.find({ companyId }).select("_id").lean();
+    const chatbotIds = chatbots.map((c) => c._id);
+    const byCompany = { companyId };
+
+    // Write the audit entry first, so a partial failure below still
+    // leaves a record of who attempted the deletion.
+    await logAction(req, {
+      action: "DELETE_COMPANY",
+      resource: "Company",
+      resourceId: companyId,
+      companyId,
+      metadata: { name: company.name, chatbots: chatbotIds.length },
+    });
+
+    const affectedInvites = await Invitation.find({ "companyAccess.companyId": companyId }).select("_id").lean();
+    const affectedInviteIds = affectedInvites.map((i) => i._id);
+
+    const results = await Promise.all([
+      Conversation.deleteMany(byCompany),
+      Visitor.deleteMany(byCompany),
+      Bot.deleteMany(byCompany),
+      User.deleteMany(byCompany),
+      FlowSession.deleteMany(byCompany),
+      ChatbotFlow.deleteMany(byCompany),
+      ChatbotAccess.deleteMany({ $or: [byCompany, { chatbotId: { $in: chatbotIds } }] }),
+      ChannelConnection.deleteMany(byCompany),
+      UserCompanyAccess.deleteMany(byCompany),
+      ApiKey.deleteMany(byCompany),
+      ApiUsage.deleteMany(byCompany),
+      DeveloperWebhook.deleteMany(byCompany),
+      BillingAccount.deleteMany(byCompany),
+      Invoice.deleteMany(byCompany),
+      AIUsage.deleteMany(byCompany),
+      Role.deleteMany(byCompany),
+      Task.deleteMany(byCompany),
+      Chatbot.deleteMany(byCompany),
+      // Pending invitations: drop this company from their grants and
+      // delete any invitation that is left with nothing to grant.
+      Invitation.updateMany({ "companyAccess.companyId": companyId }, { $pull: { companyAccess: { companyId } } }),
+    ]);
+
+    // Only invitations THIS deletion emptied — never ones that were
+    // already company-less by design.
+    await Invitation.deleteMany({ _id: { $in: affectedInviteIds }, companyAccess: { $size: 0 } });
+    await Company.deleteOne({ companyId });
+
+    invalidateKnowledgeCache(companyId);
+
+    return res.status(200).json({
+      success: true,
+      message: "Company deleted.",
+      removed: { chatbots: results[17].deletedCount, conversations: results[0].deletedCount, visitors: results[1].deletedCount },
+    });
+  } catch (error) {
+    console.error("Delete Company Error:", error);
+
+    return res.status(500).json({ success: false, message: "Failed to delete company." });
   }
 };
 

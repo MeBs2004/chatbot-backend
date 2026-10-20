@@ -188,3 +188,47 @@ export const updateVisitorName = async (req, res) => {
     });
   }
 };
+// ================= SAVE PRE-CHAT FORM =================
+// One call for everything the chatbot's pre-chat form (config.forms)
+// collects. Every field is optional and independently validated; only
+// fields that pass are written, so a bad phone number never blocks a
+// good email. Responds 400 only when nothing usable was sent.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PHONE_RE = /^[0-9+()\-\s.]{5,40}$/;
+
+export const saveVisitorProfile = async (req, res) => {
+  try {
+    const companyId = req.company.companyId;
+    const { visitorId } = req.body || {};
+    const clean = (v, max) => (typeof v === "string" ? v.trim().slice(0, max) : "");
+
+    if (!visitorId || typeof visitorId !== "string") {
+      return res.status(400).json({ success: false, message: "visitorId is required" });
+    }
+
+    const update = {};
+    const name = clean(req.body.name, 100);
+    const email = clean(req.body.email, 200);
+    const phone = clean(req.body.phone, 40);
+    const company = clean(req.body.company, 100);
+    if (name) update.name = name;
+    if (email && EMAIL_RE.test(email)) update.email = email.toLowerCase();
+    if (phone && PHONE_RE.test(phone)) update.phone = phone;
+    if (company) update.company = company;
+
+    if (Object.keys(update).length === 0) {
+      return res.status(400).json({ success: false, message: "No valid profile fields provided" });
+    }
+
+    const visitor = await Visitor.findOneAndUpdate({ companyId, visitorId }, { $set: update }, { new: true });
+
+    if (!visitor) {
+      return res.status(404).json({ success: false, message: "Visitor not found" });
+    }
+
+    return res.status(200).json({ success: true, saved: Object.keys(update) });
+  } catch (error) {
+    console.log(error);
+    return res.status(500).json({ success: false });
+  }
+};

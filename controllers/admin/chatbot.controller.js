@@ -27,6 +27,7 @@ const CHATBOT_EDITOR_ROLES = ["SUPER_ADMIN", "COMPANY_ADMIN", "CHATBOT_MANAGER"]
 const COMPANY_SUMMARY_FIELDS = "companyId name domain website industry status branding theme";
 import { logAction } from "../../services/admin/audit.service.js";
 import { mergeChatbotConfig, deepMergeConfig } from "../../config/chatbotConfig.js";
+import { STARTER_CHATBOT_CONFIG } from "../../config/chatbotStarter.js";
 import { assertChatbotQuota, QuotaExceededError } from "../../services/billing/quota.service.js";
 import { emitDomainEvent } from "../../services/realtime/io.js";
 import { EVENTS } from "../../services/realtime/events.js";
@@ -257,6 +258,10 @@ export const createChatbot = async (req, res) => {
       // as a schema default, so old documents with no stored value
       // keep reading as legacy.
       widgetEngineVersion: "v1",
+      // A new chatbot starts with the Nuform look (see chatbotStarter.js)
+      // rather than the neutral schema defaults, which older chatbots
+      // keep falling back to.
+      config: STARTER_CHATBOT_CONFIG,
       createdBy: requester._id,
     });
 

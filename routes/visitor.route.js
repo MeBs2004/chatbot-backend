@@ -5,6 +5,7 @@ import {
   saveVisitor,
   saveEmail,
   updateVisitorName,
+  saveVisitorProfile,
 } from "../controllers/visitor.controller.js";
 
 const router = express.Router();
@@ -37,5 +38,10 @@ router.post("/email", saveEmail);
 // Save Visitor Name
 // ==========================
 router.post("/name", updateVisitorName);
+
+// ==========================
+// Save pre-chat form (name/email/phone/company)
+// ==========================
+router.post("/profile", saveVisitorProfile);
 
 export default router;
