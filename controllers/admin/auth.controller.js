@@ -9,7 +9,10 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export const login = async (req, res) => {
   try {
-    const { email = "", password = "" } = req.body;
+    // `panel` says which login page was used: "platform" (/login, super
+    // admins only) or "company" (/company/login, company accounts only).
+    // Omitted = no restriction (older clients, company sign-up).
+    const { email = "", password = "", panel } = req.body;
 
     if (!email || !EMAIL_RE.test(email)) {
       return res.status(400).json({
@@ -50,6 +53,25 @@ export const login = async (req, res) => {
         success: false,
         message:
           "Your account is currently inactive. Please contact an administrator.",
+      });
+    }
+
+    // Each login page signs in its own kind of account only. Checked after
+    // the password, so only the account's owner ever learns which page it
+    // belongs to — and no token is issued for the wrong page.
+    const isSuperAdmin = adminUser.role === "SUPER_ADMIN";
+    if (panel === "company" && isSuperAdmin) {
+      return res.status(403).json({
+        success: false,
+        code: "USE_ADMIN_LOGIN",
+        message: "This is a super-admin account. Please sign in at the admin login (/login).",
+      });
+    }
+    if (panel === "platform" && !isSuperAdmin) {
+      return res.status(403).json({
+        success: false,
+        code: "USE_COMPANY_LOGIN",
+        message: "This login is for Nuform super admins only. Please sign in at the company login (/company/login).",
       });
     }
 
