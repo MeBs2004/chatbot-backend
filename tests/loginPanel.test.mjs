@@ -29,33 +29,38 @@ const login = (email, panel, password = "password123") =>
     body: JSON.stringify({ email, password, ...(panel ? { panel } : {}) }),
   }).then(async (r) => ({ status: r.status, body: await r.json() }));
 
-test("the company login refuses a super-admin account and issues no token", async () => {
+// A refused login must look exactly like a wrong password.
+const WRONG_PASSWORD = { status: 401, message: "Invalid email or password." };
+
+test("the company login refuses a super-admin account: invalid credentials, no token", async () => {
   const r = await login("super@test.com", "company");
-  assert.equal(r.status, 403);
-  assert.equal(r.body.code, "USE_ADMIN_LOGIN");
+  assert.equal(r.status, WRONG_PASSWORD.status);
+  assert.equal(r.body.message, WRONG_PASSWORD.message);
   assert.equal(r.body.token, undefined);
 });
 
-test("the admin login refuses company accounts and issues no token", async () => {
+test("the admin login refuses company accounts: invalid credentials, no token", async () => {
   for (const email of ["company@test.com", "dev@test.com"]) {
     const r = await login(email, "platform");
-    assert.equal(r.status, 403, email);
-    assert.equal(r.body.code, "USE_COMPANY_LOGIN", email);
+    assert.equal(r.status, WRONG_PASSWORD.status, email);
+    assert.equal(r.body.message, WRONG_PASSWORD.message, email);
     assert.equal(r.body.token, undefined, email);
   }
 });
 
+// (this file stays within the login rate limit: 10 attempts per 15 min)
 test("each account signs in on its own login page", async () => {
-  assert.equal((await login("super@test.com", "platform")).status, 200);
-  assert.ok((await login("super@test.com", "platform")).body.token);
+  const superLogin = await login("super@test.com", "platform");
+  assert.equal(superLogin.status, 200);
+  assert.ok(superLogin.body.token);
   assert.equal((await login("company@test.com", "company")).status, 200);
   assert.equal((await login("dev@test.com", "company")).status, 200);
 });
 
-test("a wrong password never reveals which login an account belongs to", async () => {
-  const r = await login("super@test.com", "company", "wrong-password");
-  assert.equal(r.status, 401);
-  assert.equal(r.body.code, undefined);
+test("a refused login is indistinguishable from a wrong password", async () => {
+  const refused = await login("super@test.com", "company");
+  const wrong = await login("super@test.com", "company", "wrong-password");
+  assert.deepEqual(refused, wrong);
 });
 
 test("no panel given (older clients) keeps the old behaviour", async () => {

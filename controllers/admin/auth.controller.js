@@ -56,22 +56,15 @@ export const login = async (req, res) => {
       });
     }
 
-    // Each login page signs in its own kind of account only. Checked after
-    // the password, so only the account's owner ever learns which page it
-    // belongs to — and no token is issued for the wrong page.
+    // Each login page signs in its own kind of account only. A mismatch gets
+    // exactly the same answer as a wrong password, so neither page reveals
+    // that an account exists or which login it belongs to — and no token is
+    // issued. ("platform" = /login, super admins; "company" = /company/login.)
     const isSuperAdmin = adminUser.role === "SUPER_ADMIN";
-    if (panel === "company" && isSuperAdmin) {
-      return res.status(403).json({
+    if ((panel === "company" && isSuperAdmin) || (panel === "platform" && !isSuperAdmin)) {
+      return res.status(401).json({
         success: false,
-        code: "USE_ADMIN_LOGIN",
-        message: "This is a super-admin account. Please sign in at the admin login (/login).",
-      });
-    }
-    if (panel === "platform" && !isSuperAdmin) {
-      return res.status(403).json({
-        success: false,
-        code: "USE_COMPANY_LOGIN",
-        message: "This login is for Nuform super admins only. Please sign in at the company login (/company/login).",
+        message: "Invalid email or password.",
       });
     }
 
