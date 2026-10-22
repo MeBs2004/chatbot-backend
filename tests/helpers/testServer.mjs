@@ -3,6 +3,8 @@
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import os from "node:os";
+import fs from "node:fs";
 
 const BACKEND_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -31,7 +33,14 @@ export async function startTestServer({ port = 4199 } = {}) {
     GROQ_API_KEY_3: "test",
     GROQ_API_KEY_4: "test",
     GROQ_API_KEY_5: "test",
+    // never send real email from tests: SMTP stays unset (dotenv won't fill
+    // it in from .env) and "sent" messages land in this file instead
+    SMTP_HOST: "",
+    SMTP_USER: "",
+    SMTP_PASS: "",
+    MAIL_OUTBOX_FILE: path.join(os.tmpdir(), `nuformly-test-outbox-${port}.jsonl`),
   };
+  fs.rmSync(env.MAIL_OUTBOX_FILE, { force: true });
   const child = spawn(process.execPath, ["index.js"], { cwd: BACKEND_DIR, env, stdio: ["ignore", "pipe", "pipe"] });
   let output = "";
   child.stdout.on("data", (d) => (output += d));
@@ -54,6 +63,14 @@ export async function startTestServer({ port = 4199 } = {}) {
 
   return {
     baseUrl,
+    /** Emails the server "sent" so far (SMTP is never configured in tests). */
+    outbox() {
+      try {
+        return fs.readFileSync(env.MAIL_OUTBOX_FILE, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
+      } catch {
+        return [];
+      }
+    },
     async stop() {
       child.kill();
       await new Promise((r) => child.once("exit", r));

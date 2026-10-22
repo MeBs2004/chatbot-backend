@@ -67,6 +67,18 @@ const adminUserSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+
+    // Password reset (company accounts): only a SHA-256 hash of the emailed
+    // one-time token is stored, with its expiry. Cleared once used.
+    resetTokenHash: {
+      type: String,
+      default: null,
+      index: { sparse: true },
+    },
+    resetTokenExpires: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,
@@ -90,6 +102,8 @@ adminUserSchema.methods.comparePassword = function (plainPassword) {
 adminUserSchema.set("toJSON", {
   transform: (_doc, ret) => {
     delete ret.passwordHash;
+    delete ret.resetTokenHash;
+    delete ret.resetTokenExpires;
     return ret;
   },
 });

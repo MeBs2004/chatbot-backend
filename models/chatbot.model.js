@@ -33,6 +33,8 @@ import {
   SUGGESTION_STYLES,
   FONTS,
   FONT_SIZES,
+  LISTEN_PLACEMENTS,
+  ATTACH_ICONS,
 } from "../config/chatbotConfig.js";
 
 // ======================================================
@@ -126,6 +128,12 @@ const chatbotConfigSchema = new mongoose.Schema(
       badgeWithBubble: { type: Boolean, default: DEFAULT_CHATBOT_CONFIG.launcher.badgeWithBubble },
       shadow: { type: String, enum: LAUNCHER_SHADOWS, default: DEFAULT_CHATBOT_CONFIG.launcher.shadow },
       badgeColor: { type: String, default: DEFAULT_CHATBOT_CONFIG.launcher.badgeColor, validate: HEX_VALIDATOR },
+      effectColor: { type: String, default: DEFAULT_CHATBOT_CONFIG.launcher.effectColor, validate: HEX_VALIDATOR },
+      sparkleColor: { type: String, default: DEFAULT_CHATBOT_CONFIG.launcher.sparkleColor, validate: HEX_VALIDATOR },
+      bubbleBgColor: { type: String, default: DEFAULT_CHATBOT_CONFIG.launcher.bubbleBgColor, validate: HEX_VALIDATOR },
+      bubbleBorderColor: { type: String, default: DEFAULT_CHATBOT_CONFIG.launcher.bubbleBorderColor, validate: HEX_VALIDATOR },
+      bubbleTextColor: { type: String, default: DEFAULT_CHATBOT_CONFIG.launcher.bubbleTextColor, validate: HEX_VALIDATOR },
+      bubbleDotColor: { type: String, default: DEFAULT_CHATBOT_CONFIG.launcher.bubbleDotColor, validate: HEX_VALIDATOR },
       size: {
         type: String,
         enum: ["small", "medium", "large"],
@@ -216,6 +224,14 @@ const chatbotConfigSchema = new mongoose.Schema(
       welcomeBorderColor: { type: String, default: DEFAULT_CHATBOT_CONFIG.chatWindow.welcomeBorderColor, validate: HEX_VALIDATOR },
       placeholderColor: { type: String, default: DEFAULT_CHATBOT_CONFIG.chatWindow.placeholderColor, validate: HEX_VALIDATOR },
       avatarAlign: { type: String, enum: AVATAR_ALIGNS, default: DEFAULT_CHATBOT_CONFIG.chatWindow.avatarAlign },
+      headerLogo: { type: String, default: DEFAULT_CHATBOT_CONFIG.chatWindow.headerLogo, trim: true, validate: IMAGE_SRC_VALIDATOR },
+      listenPlacement: { type: String, enum: LISTEN_PLACEMENTS, default: DEFAULT_CHATBOT_CONFIG.chatWindow.listenPlacement },
+      typingColor1: { type: String, default: DEFAULT_CHATBOT_CONFIG.chatWindow.typingColor1, validate: HEX_VALIDATOR },
+      typingColor2: { type: String, default: DEFAULT_CHATBOT_CONFIG.chatWindow.typingColor2, validate: HEX_VALIDATOR },
+      typingColor3: { type: String, default: DEFAULT_CHATBOT_CONFIG.chatWindow.typingColor3, validate: HEX_VALIDATOR },
+      typingAvatar: { type: Boolean, default: DEFAULT_CHATBOT_CONFIG.chatWindow.typingAvatar },
+      attachIcon: { type: String, enum: ATTACH_ICONS, default: DEFAULT_CHATBOT_CONFIG.chatWindow.attachIcon },
+      ctaTextColor: { type: String, default: DEFAULT_CHATBOT_CONFIG.chatWindow.ctaTextColor, validate: HEX_VALIDATOR },
       showClearButton: { type: Boolean, default: DEFAULT_CHATBOT_CONFIG.chatWindow.showClearButton },
       showLanguageSelector: { type: Boolean, default: DEFAULT_CHATBOT_CONFIG.chatWindow.showLanguageSelector },
       showCloseButton: { type: Boolean, default: DEFAULT_CHATBOT_CONFIG.chatWindow.showCloseButton },
@@ -238,6 +254,7 @@ const chatbotConfigSchema = new mongoose.Schema(
       formSubtitle: { type: String, default: DEFAULT_CHATBOT_CONFIG.chatWindow.formSubtitle, maxlength: 160, trim: true },
       formButtonLabel: { type: String, default: DEFAULT_CHATBOT_CONFIG.chatWindow.formButtonLabel, maxlength: 40, trim: true },
       welcomeMessageHindi: { type: String, default: DEFAULT_CHATBOT_CONFIG.chatWindow.welcomeMessageHindi, maxlength: 300 },
+      inputPlaceholderHindi: { type: String, default: DEFAULT_CHATBOT_CONFIG.chatWindow.inputPlaceholderHindi, maxlength: 80 },
     },
     behavior: {
       autoOpen: { type: Boolean, default: DEFAULT_CHATBOT_CONFIG.behavior.autoOpen },

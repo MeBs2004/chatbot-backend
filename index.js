@@ -14,6 +14,7 @@ import widgetSessionRoutes, { installInfoRouter } from "./routes/widget/session.
 import telegramWebhookRoutes from "./routes/webhooks/telegram.route.js";
 import invitationPublicRoutes from "./routes/invitationPublic.route.js";
 import companySignupRoutes from "./routes/companySignup.route.js";
+import passwordResetRoutes from "./routes/passwordReset.route.js";
 import developerApiRoutes from "./routes/developerApi.route.js";
 
 import { publicTenantMiddleware } from "./middleware/widgetSession.middleware.js";
@@ -297,6 +298,7 @@ app.use("/webhooks/telegram", telegramWebhookRoutes);
 // the authentication; no adminAuthMiddleware.
 app.use("/api/invitations", invitationPublicRoutes);
 app.use("/api/company-signup", companySignupRoutes);
+app.use("/api/password-reset", passwordResetRoutes);
 
 // Developer API v1 (Phase 12) — external, API-key-authenticated.
 // Deliberately separate from /api/admin (admin JWT) and /bot/v1

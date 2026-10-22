@@ -16,6 +16,11 @@ export const SIZE_FIELDS = {
     bubbleMaxWidth: [140, 360],
     bubbleFontSize: [10, 20],
     badgeSize: [8, 28],
+    // logo size inside the launcher circle, in % (over 100 crops it to fill the circle)
+    logoScale: [60, 160],
+    // gap between the launcher and its greeting bubble
+    bubbleOffset: [4, 40],
+    bubbleLetterSpacing: [0, 3],
   },
   chatWindow: {
     customWidth: [280, 560],
@@ -51,6 +56,17 @@ export const SIZE_FIELDS = {
     inputHeight: [36, 80],
     sendButtonSize: [26, 56],
     footerFontSize: [9, 16],
+    headerLogoWidth: [16, 64],
+    headerLogoHeight: [16, 64],
+    messageAvatarHeight: [20, 56],
+    inputPaddingX: [4, 24],
+    inputPaddingY: [2, 16],
+    sendButtonRadius: [0, 28],
+    sendIconSize: [10, 24],
+    ctaIconSize: [10, 24],
+    headerButtonAlpha: [0, 40],
+    closeIconSize: [8, 20],
+    paragraphGap: [0, 16],
   },
   forms: {
     fieldHeight: [32, 64],
@@ -100,6 +116,15 @@ export const DEFAULT_CHATBOT_CONFIG = {
     badgeWithBubble: false,
     shadow: "strong",
     badgeColor: "#EF4444",
+    // "luxe" animation: halo, glow and shimmer colour, and the sparkles' colour.
+    // Empty = the launcher colour.
+    effectColor: "",
+    sparkleColor: "",
+    // Greeting bubble colours. Empty = white bubble, grey border, dark text, grey dots.
+    bubbleBgColor: "",
+    bubbleBorderColor: "",
+    bubbleTextColor: "",
+    bubbleDotColor: "",
     showGreeting: true,
     greetingTitle: "Hi there \u{1F44B}",
     greetingMessage: "How can we help you today?",
@@ -160,6 +185,7 @@ export const DEFAULT_CHATBOT_CONFIG = {
     brandColor: "",
     // Shown instead of welcomeMessage when the visitor picks Hindi.
     welcomeMessageHindi: "",
+    inputPlaceholderHindi: "",
     // Show / hide each part of the window. All on by default.
     showClearButton: true,
     showLanguageSelector: true,
@@ -189,6 +215,19 @@ export const DEFAULT_CHATBOT_CONFIG = {
     welcomeBorderColor: "",
     placeholderColor: "",
     avatarAlign: "bottom",
+    // A separate image for the header (empty = the bot avatar).
+    headerLogo: "",
+    // Where "Listen" sits: inside the bot's bubble, or under it.
+    listenPlacement: "inside",
+    // Typing-dot colours (empty = the style's own colours).
+    typingColor1: "",
+    typingColor2: "",
+    typingColor3: "",
+    // The bot's avatar beside the typing indicator.
+    typingAvatar: false,
+    attachIcon: "plus",
+    // Text colour of the contact buttons (empty = automatic per button).
+    ctaTextColor: "",
     ...nullSizes("chatWindow"),
   },
   behavior: {
@@ -236,16 +275,16 @@ export const DEFAULT_CHATBOT_CONFIG = {
 // validator and the widget can never disagree about what is allowed.
 export const LAUNCHER_ICONS = ["default", "chat", "logo", "headset", "bolt", "heart", "help", "robot", "send", "smile", "star"];
 export const LAUNCHER_SHAPES = ["circle", "rounded-square", "squircle"];
-export const LAUNCHER_ANIMATIONS = ["none", "float", "pulse", "glow", "bounce", "wiggle", "ripple", "heartbeat", "shake", "jelly", "swing", "tada", "breathe", "spin", "flash", "wobble", "float-ripple"];
-export const LAUNCHER_ENTRANCES = ["none", "pop", "slide-up", "fade", "bounce", "zoom", "flip", "slide-left", "slide-right", "drop", "rotate", "blur"];
-export const LAUNCHER_HOVERS = ["none", "grow", "lift", "spin", "shake", "tilt", "glow", "bounce", "pulse", "grow-rotate"];
+export const LAUNCHER_ANIMATIONS = ["none", "float", "pulse", "glow", "bounce", "wiggle", "ripple", "heartbeat", "shake", "jelly", "swing", "tada", "breathe", "spin", "flash", "wobble", "float-ripple", "luxe"];
+export const LAUNCHER_ENTRANCES = ["none", "pop", "slide-up", "fade", "bounce", "zoom", "flip", "slide-left", "slide-right", "drop", "rotate", "blur", "rise"];
+export const LAUNCHER_HOVERS = ["none", "grow", "lift", "spin", "shake", "tilt", "glow", "bounce", "pulse", "grow-rotate", "subtle"];
 export const AVATAR_ALIGNS = ["bottom", "top"];
 export const BUBBLE_ANIMATIONS = ["none", "fade", "slide", "pop", "bounce", "shake"];
 export const SHADOWS = ["none", "soft", "strong"];
 export const LAUNCHER_SHADOWS = ["none", "soft", "strong", "glow"];
 export const BUBBLE_STYLES = ["rounded", "soft", "sharp", "pill", "classic"];
 export const MESSAGE_ANIMATIONS = ["none", "fade", "slide", "pop", "bounce", "zoom", "flip", "side", "blur"];
-export const WINDOW_ANIMATIONS = ["none", "slide-up", "fade", "scale", "bounce", "zoom", "flip", "drop", "rotate", "elastic"];
+export const WINDOW_ANIMATIONS = ["none", "slide-up", "fade", "scale", "bounce", "zoom", "flip", "drop", "rotate", "elastic", "spring"];
 export const AUTO_OPEN_ANIMATIONS = ["default", "slide-up", "slide-down", "slide-left", "slide-right", "fade", "scale", "zoom", "bounce", "flip", "flip-y", "drop", "rotate", "elastic", "swing", "blur"];
 export const TYPING_STYLES = ["dots", "wave", "pulse", "bars", "colorful"];
 export const BUBBLE_EFFECTS = ["none", "typing"];
@@ -253,6 +292,8 @@ export const BUBBLE_ORDERS = ["sequence", "random"];
 export const AVATAR_SHAPES = ["circle", "rounded"];
 export const STATUS_STYLES = ["avatar", "inline"];
 export const SEND_SHAPES = ["rounded", "circle"];
+export const LISTEN_PLACEMENTS = ["inside", "below"];
+export const ATTACH_ICONS = ["plus", "paperclip"];
 export const HEADER_ANIMATIONS = ["none", "shimmer", "flow"];
 export const AVATAR_ANIMATIONS = ["none", "pulse", "float", "wiggle"];
 export const SEND_ANIMATIONS = ["none", "fly", "pulse", "spin"];
