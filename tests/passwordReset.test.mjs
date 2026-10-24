@@ -57,16 +57,16 @@ test("reset: the link sets a new password once, then stops working, and old sess
   assert.equal((await verify(token)).valid, true);
 
   assert.equal((await post("/reset", { token, password: "short" })).status, 400);
-  const ok = await post("/reset", { token, password: "brand-new-password" });
+  const ok = await post("/reset", { token, password: "brand-new-pass42" });
   assert.equal(ok.status, 200);
 
-  assert.equal(await login("owner@acme.test", "brand-new-password"), 200);
+  assert.equal(await login("owner@acme.test", "brand-new-pass42"), 200);
   assert.equal(await login("owner@acme.test", "old-password-1"), 401);
   const afterReset = await AdminUser.findOne({ email: "owner@acme.test" }).lean();
   assert.equal(afterReset.tokenVersion, (before.tokenVersion || 0) + 1, "existing sessions are signed out");
 
   assert.equal((await verify(token)).valid, false, "a used link is dead");
-  assert.equal((await post("/reset", { token, password: "another-password" })).status, 400);
+  assert.equal((await post("/reset", { token, password: "another-pass42" })).status, 400);
 });
 
 test("reset: expired and made-up tokens are refused", async () => {
@@ -74,8 +74,8 @@ test("reset: expired and made-up tokens are refused", async () => {
   const { token } = lastLink();
   await AdminUser.updateOne({ email: "owner@acme.test" }, { resetTokenExpires: new Date(Date.now() - 1000) });
   assert.equal((await verify(token)).valid, false);
-  assert.equal((await post("/reset", { token, password: "brand-new-password" })).status, 400);
-  assert.equal((await post("/reset", { token: "f".repeat(64), password: "brand-new-password" })).status, 400);
+  assert.equal((await post("/reset", { token, password: "brand-new-pass42" })).status, 400);
+  assert.equal((await post("/reset", { token: "f".repeat(64), password: "brand-new-pass42" })).status, 400);
   assert.equal((await verify("not-a-token")).valid, false);
 });
 

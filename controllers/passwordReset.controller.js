@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import AdminUser from "../models/adminUser.model.js";
 import { sendMail } from "../services/mail.service.js";
 import { logAction } from "../services/admin/audit.service.js";
+import { checkPassword } from "../utils/accountRules.js";
 
 // ======================================================
 // PUBLIC password reset for company accounts (the /company/login page).
@@ -103,14 +104,14 @@ export const verifyResetToken = async (req, res) => {
 export const resetPassword = async (req, res) => {
   try {
     const { token, password } = req.body || {};
-    if (typeof password !== "string" || password.length < 8) {
-      return res.status(400).json({ success: false, message: "Password must be at least 8 characters." });
-    }
-    if (password.length > 200) {
-      return res.status(400).json({ success: false, message: "Password is too long." });
-    }
+    // Same password rules as sign-up (utils/accountRules.js); the personal
+    // ones (not built from your name or email) need the account first.
+    const basic = checkPassword(password);
+    if (basic) return res.status(400).json({ success: false, message: basic });
     const user = await findByToken(token);
     if (!user) return res.status(400).json({ success: false, message: BAD_LINK });
+    const personal = checkPassword(password, { email: user.email, name: user.name });
+    if (personal) return res.status(400).json({ success: false, message: personal });
 
     await user.setPassword(password);
     user.resetTokenHash = null;

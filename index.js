@@ -139,6 +139,9 @@ app.use((req, res, next) => {
     res.header("Access-Control-Max-Age", "86400");
   }
 
+  // Lets the login / sign-up pages read how long to wait after "too many attempts".
+  res.header("Access-Control-Expose-Headers", "Retry-After, RateLimit-Reset");
+
   if (req.method === "OPTIONS") {
     return res.sendStatus(200);
   }

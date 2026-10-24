@@ -5,6 +5,7 @@ import { signAdminToken } from "../services/admin/token.service.js";
 import { logAction } from "../services/admin/audit.service.js";
 import { INDUSTRIES } from "../config/industries.js";
 import { slugify, invalidSlugReason } from "../utils/companySlug.js";
+import { checkName, checkCompanyName, checkEmail, checkPassword, normalizeEmail, tidy } from "../utils/accountRules.js";
 
 // ======================================================
 // PUBLIC COMPANY SELF-REGISTRATION
@@ -22,8 +23,6 @@ import { slugify, invalidSlugReason } from "../utils/companySlug.js";
 // acceptInvitation already does when a new user joins an existing
 // company, just with the Company itself also being new.
 // ======================================================
-
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function deriveDomain(website, companyId) {
   if (website && typeof website === "string") {
@@ -125,20 +124,19 @@ async function register(req, res) {
     companySize = "",
   } = req.body;
 
-  // ---- Validation (mirrors acceptInvitation's conventions) ----
-  if (!companyName.trim()) {
-    return res.status(400).json({ success: false, message: "Company name is required." });
-  }
-  if (!adminName.trim()) {
-    return res.status(400).json({ success: false, message: "Your full name is required." });
-  }
-  if (!email || !EMAIL_RE.test(email)) {
-    return res.status(400).json({ success: false, message: "Please enter a valid work email address." });
-  }
-  if (!password || password.length < 8) {
-    return res.status(400).json({ success: false, message: "Password must be at least 8 characters." });
-  }
-  if (password !== confirmPassword) {
+  // ---- Validation: the same rules the Sign Up page checks (utils/accountRules.js) ----
+  // `field` tells the page which input to point at.
+  const invalid = (field, message) => res.status(400).json({ success: false, field, message });
+  const companyError = checkCompanyName(companyName);
+  if (companyError) return invalid("companyName", companyError);
+  const nameError = checkName(adminName);
+  if (nameError) return invalid("adminName", nameError);
+  const emailError = checkEmail(email, { forSignup: true });
+  if (emailError) return invalid("email", emailError);
+  const passwordError = checkPassword(password, { email, name: adminName, company: companyName });
+  if (passwordError) return invalid("password", passwordError);
+  // Older clients send a separate confirmation; the current page doesn't need one.
+  if (confirmPassword && password !== confirmPassword) {
     return res.status(400).json({ success: false, message: "Passwords do not match." });
   }
   if (website && typeof website !== "string") {
@@ -148,13 +146,13 @@ async function register(req, res) {
     return res.status(400).json({ success: false, message: "Invalid phone number." });
   }
   if (!industry || !INDUSTRIES.includes(industry)) {
-    return res.status(400).json({ success: false, message: "Please select a valid industry." });
+    return invalid("industry", "Please select a valid industry.");
   }
   if (companySize && !["1-10", "11-50", "51-200", "201-1000", "1000+"].includes(companySize)) {
     return res.status(400).json({ success: false, message: "Invalid company size." });
   }
 
-  const normalizedEmail = email.trim().toLowerCase();
+  const normalizedEmail = normalizeEmail(email);
 
   // A caller may submit a chosen slug (the normal Sign Up form path,
   // already live-checked client-side via GET check-slug) or omit it
@@ -176,7 +174,7 @@ async function register(req, res) {
   // fail on the AdminUser step.
   const existingUser = await AdminUser.findOne({ email: normalizedEmail }).select("_id").lean();
   if (existingUser) {
-    return res.status(409).json({ success: false, message: "An account with this email already exists. Try logging in instead." });
+    return res.status(409).json({ success: false, field: "email", code: "EMAIL_TAKEN", message: "An account with this email already exists. Try logging in instead." });
   }
 
   let company = null;
@@ -196,7 +194,7 @@ async function register(req, res) {
 
     company = await Company.create({
       companyId,
-      name: companyName.trim(),
+      name: tidy(companyName),
       domain,
       website: website ? website.trim() : "",
       knowledgeFile: `${companyId}.txt`,
@@ -206,7 +204,7 @@ async function register(req, res) {
     });
 
     adminUser = new AdminUser({
-      name: adminName.trim(),
+      name: tidy(adminName),
       email: normalizedEmail,
       role: "COMPANY_ADMIN",
     });
