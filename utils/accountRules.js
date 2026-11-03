@@ -9,6 +9,7 @@ export const LIMITS = {
   company: [2, 80],
   email: 254,
   password: [8, 72], // bcrypt only reads the first 72 bytes
+  phone: 20, // "+91 98765 43210" fits comfortably; this is a display field, not a dial string
 };
 
 /** Trimmed, single-spaced. */
@@ -38,6 +39,21 @@ export function checkCompanyName(value) {
   if ([...v].length > LIMITS.company[1]) return `Use ${LIMITS.company[1]} characters or fewer.`;
   if (!/[\p{L}\p{N}]/u.test(v)) return "Include at least one letter or number.";
   if (/[<>{}\\`]|[\u0000-\u001f]/.test(v)) return "Remove symbols like < > { } from the name.";
+  return "";
+}
+
+// Digits with an optional leading "+" and ordinary formatting (spaces,
+// dashes, dots, parentheses) — permissive since this is a contact number
+// someone reads and dials by hand, not a string this app ever auto-dials.
+const PHONE_SHAPE_RE = /^\+?[\d\s().-]+$/;
+
+export function checkPhone(value) {
+  const v = tidy(value);
+  if (!v) return "Enter your phone number.";
+  if (v.length > LIMITS.phone) return `Use ${LIMITS.phone} characters or fewer.`;
+  if (!PHONE_SHAPE_RE.test(v)) return "Use only numbers, spaces, and + ( ) - .";
+  const digits = v.replace(/\D/g, "");
+  if (digits.length < 7 || digits.length > 15) return "Enter a valid phone number.";
   return "";
 }
 

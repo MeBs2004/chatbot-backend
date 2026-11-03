@@ -1,7 +1,7 @@
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import Chatbot from "../../models/chatbot.model.js";
 import Company from "../../models/company.model.js";
-import { getCompanyRole, hasChatbotAccess } from "../../services/admin/access.service.js";
+import { hasChatbotAccess } from "../../services/admin/access.service.js";
 import { logAction } from "../../services/admin/audit.service.js";
 import { validateAiConfigPatch } from "../../validators/aiConfig.validator.js";
 import { askAI } from "../../services/ai.router.js";
@@ -24,6 +24,12 @@ import {
  * companyId (never a client-supplied companyId) resolves the real
  * Company record, and access is re-checked from the authenticated
  * session on every call.
+ *
+ * AI Settings (view, edit, and the test playground) is SUPER_ADMIN-
+ * only by explicit product decision — a Company Admin can no longer
+ * view or change their own AI model/tone/temperature configuration.
+ * Checked once here so all three handlers below can never drift out
+ * of sync on this.
  */
 async function loadAuthorizedChatbotAndCompany(req, res) {
   const chatbot = await Chatbot.findById(req.params.id).lean();
@@ -33,6 +39,10 @@ async function loadAuthorizedChatbotAndCompany(req, res) {
   }
 
   const requester = req.adminUser;
+  if (requester.role !== "SUPER_ADMIN") {
+    res.status(403).json({ success: false, message: "You don't have permission to access this resource." });
+    return null;
+  }
   if (!(await hasChatbotAccess(requester, chatbot._id))) {
     res.status(403).json({ success: false, message: "You don't have permission to access this resource." });
     return null;
@@ -82,16 +92,9 @@ export const getAiSettings = async (req, res) => {
 
 export const updateAiSettings = async (req, res) => {
   try {
+    // SUPER_ADMIN-only check already happened inside loadAuthorizedChatbotAndCompany.
     const ctx = await loadAuthorizedChatbotAndCompany(req, res);
     if (!ctx) return;
-
-    const requester = req.adminUser;
-    if (requester.role !== "SUPER_ADMIN") {
-      const role = await getCompanyRole(requester, ctx.company.companyId);
-      if (role !== "COMPANY_ADMIN") {
-        return res.status(403).json({ success: false, message: "You don't have permission to access this resource." });
-      }
-    }
 
     const patch = req.body?.ai;
     if (!patch || typeof patch !== "object") {

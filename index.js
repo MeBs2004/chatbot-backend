@@ -10,6 +10,9 @@ import visitorRoutes from "./routes/visitor.route.js";
 import adminRoutes from "./routes/admin/index.js";
 import widgetConfigRoutes from "./routes/widget/config.route.js";
 import widgetCalculatorRoutes from "./routes/widget/calculator.route.js";
+import widgetEnergyEnquiryRoutes from "./routes/widget/energyEnquiry.route.js";
+import widgetEducationRoutes from "./routes/widget/education.route.js";
+import widgetMarketingRoutes from "./routes/widget/marketing.route.js";
 import widgetSessionRoutes, { installInfoRouter } from "./routes/widget/session.route.js";
 import telegramWebhookRoutes from "./routes/webhooks/telegram.route.js";
 import invitationPublicRoutes from "./routes/invitationPublic.route.js";
@@ -20,6 +23,8 @@ import developerApiRoutes from "./routes/developerApi.route.js";
 import { publicTenantMiddleware } from "./middleware/widgetSession.middleware.js";
 import { initRealtime } from "./services/realtime/socket.server.js";
 import { migrateKnowledgeFromDisk } from "./services/knowledge.migration.js";
+import { ensureEnergyDefaults } from "./services/energy/energyDefaults.service.js";
+import { ensureEducationDefaults } from "./services/education/educationDefaults.service.js";
 
 dotenv.config();
 
@@ -211,6 +216,27 @@ mongoose
       // deploy, not a reason to take the whole API down.
       console.error("⚠️  Knowledge migration failed (non-fatal):", err.message);
     }
+    try {
+      // Idempotent (existing rows are left untouched) — without this,
+      // a freshly deployed environment has an empty platform-wide
+      // Energy catalog and the Create Chatbot wizard's Energy step has
+      // nothing to offer until someone remembers to run the standalone
+      // seeders/energyDefaults.seed.js script by hand.
+      const { fuelsCreated, offeringsCreated } = await ensureEnergyDefaults();
+      if (fuelsCreated || offeringsCreated) {
+        console.log(`✅ Energy defaults ensured — ${fuelsCreated} fuel categories and ${offeringsCreated} products/services/project types created.`);
+      }
+    } catch (err) {
+      console.error("⚠️  Energy defaults seeding failed (non-fatal):", err.message);
+    }
+    try {
+      const { categoriesCreated, faqsCreated } = await ensureEducationDefaults();
+      if (categoriesCreated || faqsCreated) {
+        console.log(`✅ Education defaults ensured — ${categoriesCreated} categories and ${faqsCreated} FAQs created.`);
+      }
+    } catch (err) {
+      console.error("⚠️  Education defaults seeding failed (non-fatal):", err.message);
+    }
   })
   .catch((err) => {
     console.error("❌ MongoDB Connection Failed");
@@ -287,6 +313,9 @@ app.use("/api/admin", adminRoutes);
 // this never touches conversation logic.
 app.use("/api/widget/config", widgetConfigRoutes);
 app.use("/api/widget/calculate", widgetCalculatorRoutes);
+app.use("/api/widget/energy", widgetEnergyEnquiryRoutes);
+app.use("/api/widget/education", widgetEducationRoutes);
+app.use("/api/widget/marketing", widgetMarketingRoutes);
 // Widget session token — see routes/widget/session.route.js.
 app.use("/api/widget/session", widgetSessionRoutes);
 // Public install page info (name only) — see getInstallInfo.

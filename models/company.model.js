@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { INDUSTRIES } from "../config/industries.js";
 
 const companySchema = new mongoose.Schema(
   {
@@ -36,12 +37,13 @@ const companySchema = new mongoose.Schema(
     // document simply lacks these; the frontend already treats a
     // missing/"Other" industry and an empty companySize as valid,
     // unset states rather than erroring, so no backfill migration is
-    // needed. Distinct from the four CHATBOT sectors used elsewhere
-    // (that's what kind of chatbot a company builds) — this is what
-    // business the COMPANY itself is in.
+    // needed. Mirrors the four CHATBOT sector templates on purpose
+    // (see config/industries.js) — this is what business the COMPANY
+    // itself is in, picked once at sign-up; a chatbot's own template
+    // is a separate, per-chatbot choice.
     industry: {
       type: String,
-      enum: ["Energy", "Education", "Digital Marketing", "Technology", "Finance", "Healthcare", "E-commerce", "Other"],
+      enum: INDUSTRIES,
       default: "Other",
     },
 

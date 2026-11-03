@@ -2,9 +2,9 @@ import fs from "node:fs";
 import nodemailer from "nodemailer";
 
 // ======================================================
-// Outgoing email (password resets). Configured with standard SMTP
-// settings, so any provider works — Gmail (app password), Brevo,
-// Resend, Zoho, SES…:
+// Outgoing email (OTP verification, welcome mail, password resets).
+// Configured with standard SMTP settings, so any provider works —
+// Gmail (app password), Brevo, Zoho, SES…:
 //   SMTP_HOST, SMTP_PORT (587 or 465), SMTP_USER, SMTP_PASS,
 //   MAIL_FROM  e.g. "Nuformly <no-reply@yourdomain.com>"
 // Without SMTP configured nothing is sent: in development the message

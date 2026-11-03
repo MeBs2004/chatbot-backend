@@ -14,6 +14,9 @@ import developerRoutes from "./developer.route.js";
 import billingRoutes from "./billing.route.js";
 import roleRoutes from "./role.route.js";
 import taskRoutes from "./task.route.js";
+import energyDefaultsRoutes from "./energyDefaults.route.js";
+import educationDefaultsRoutes from "./educationDefaults.route.js";
+import marketingDefaultsRoutes from "./marketingDefaults.route.js";
 
 import adminAuthMiddleware from "../../middleware/adminAuth.middleware.js";
 import { getDashboard } from "../../controllers/admin/dashboard.controller.js";
@@ -35,6 +38,9 @@ router.use("/developer", developerRoutes);
 router.use("/billing", billingRoutes);
 router.use("/roles", roleRoutes);
 router.use("/tasks", taskRoutes);
+router.use("/energy-defaults", energyDefaultsRoutes);
+router.use("/education-defaults", educationDefaultsRoutes);
+router.use("/marketing-defaults", marketingDefaultsRoutes);
 router.get("/features", adminAuthMiddleware, getFeatures);
 router.get("/dashboard", adminAuthMiddleware, getDashboard);
 

@@ -1360,6 +1360,11 @@ export const resetUserPassword = async (req, res) => {
     const temporaryPassword = crypto.randomBytes(9).toString("base64url");
 
     await user.setPassword(temporaryPassword);
+    // Phase 7 audit fix — without this, a JWT issued before the reset
+    // stays valid for its full remaining life even though the
+    // password just changed (the same class of issue tokenVersion
+    // already exists to close for logout/self-service reset).
+    user.tokenVersion = (user.tokenVersion || 0) + 1;
     await user.save();
 
     await logAction(req, {

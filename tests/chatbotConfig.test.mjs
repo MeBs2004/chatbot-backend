@@ -78,6 +78,26 @@ test("new chatbots are v1", async () => {
   assert.equal((await res.json()).chatbot.widgetEngineVersion, "v1");
 });
 
+test("a new chatbot's starting look matches its sector template", async () => {
+  const cases = [
+    [undefined, "Nuform Social Assistant", "#067647"],
+    ["general", "Nuform Social Assistant", "#067647"],
+    ["energy", "Energy Assistant", "#15803D"],
+    ["education", "Education Assistant", "#1D4ED8"],
+    ["digital_marketing", "Digital Marketing Assistant", "#5B21B6"],
+  ];
+  for (const [i, [template, expectedName, expectedColor]] of cases.entries()) {
+    const companyId = `sector-${i}`;
+    await seedTenant({ companyId });
+    const res = await admin("POST", "/chatbots", { companyId, name: "Bot", ...(template && { template }) });
+    assert.equal(res.status, 201, await res.clone().text());
+    const { chatbot } = await res.json();
+    const { config } = await publicConfig(chatbot._id);
+    assert.equal(config.chatWindow.botName, expectedName, `template=${template}`);
+    assert.equal(config.chatWindow.primaryColor, expectedColor, `template=${template}`);
+  }
+});
+
 test("studio styling options round-trip to the public config", async () => {
   const { chatbots } = await seedTenant({ companyId: "acme", chatbots: [{ name: "Bot" }] });
   const id = chatbots[0]._id;
@@ -171,7 +191,11 @@ test("size options: default to automatic (null), save, validate ranges, reach th
 test("a new chatbot starts with the Nuform look; older chatbots keep the neutral defaults", async () => {
   const { STARTER_CHATBOT_CONFIG } = await import("../config/chatbotStarter.js");
   await seedTenant({ companyId: "fresh" });
-  const res = await admin("POST", "/chatbots", { companyId: "fresh", name: "Starter Bot", template: "energy" });
+  // "general" (and no template at all) is the one case that still gets the
+  // original, universal Nuform look untouched — see chatbotSectorStarters.js
+  // and "a new chatbot's starting look matches its sector template" for how
+  // energy/education/digital_marketing now differ from it.
+  const res = await admin("POST", "/chatbots", { companyId: "fresh", name: "Starter Bot", template: "general" });
   assert.equal(res.status, 201, await res.clone().text());
   const created = (await res.json()).chatbot;
   const { config } = await publicConfig(created._id);
@@ -187,14 +211,6 @@ test("a new chatbot starts with the Nuform look; older chatbots keep the neutral
   assert.deepEqual(config.ctas.map((c) => c.color), ["#067647", "#25D366", "#E36B0A"]);
   assert.equal(config.behavior.askEmail, true);
   assert.deepEqual(config, JSON.parse(JSON.stringify(STARTER_CHATBOT_CONFIG)), "public config equals the starter exactly");
-
-  // The same for every template.
-  for (const [i, template] of ["education", "digital_marketing", "general"].entries()) {
-    await seedTenant({ companyId: `tpl-${i}` }); // one company each — the free plan caps chatbots per company
-    const r = await admin("POST", "/chatbots", { companyId: `tpl-${i}`, name: `Bot ${i}`, template });
-    assert.equal(r.status, 201);
-    assert.equal((await publicConfig((await r.json()).chatbot._id)).config.chatWindow.botName, "Nuform Social Assistant", template);
-  }
 
   // A chatbot that predates the starter keeps the neutral look.
   const { chatbots } = await seedTenant({ companyId: "old", chatbots: [{ name: "Old Bot" }] });

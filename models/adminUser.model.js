@@ -69,7 +69,11 @@ const adminUserSchema = new mongoose.Schema(
     },
 
     // Password reset (company accounts): only a SHA-256 hash of the emailed
-    // one-time token is stored, with its expiry. Cleared once used.
+    // one-time token is stored, with its expiry. Cleared once used. The
+    // same email also carries a 6-digit code as an alternative to the
+    // link — it shares the token's expiry but has its own attempt cap
+    // and can be locked out (resetCodeHash cleared) without touching the
+    // link, which stays usable until it expires.
     resetTokenHash: {
       type: String,
       default: null,
@@ -78,6 +82,14 @@ const adminUserSchema = new mongoose.Schema(
     resetTokenExpires: {
       type: Date,
       default: null,
+    },
+    resetCodeHash: {
+      type: String,
+      default: null,
+    },
+    resetCodeAttempts: {
+      type: Number,
+      default: 0,
     },
   },
   {
@@ -104,6 +116,8 @@ adminUserSchema.set("toJSON", {
     delete ret.passwordHash;
     delete ret.resetTokenHash;
     delete ret.resetTokenExpires;
+    delete ret.resetCodeHash;
+    delete ret.resetCodeAttempts;
     return ret;
   },
 });

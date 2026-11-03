@@ -388,3 +388,48 @@ ${extraInstruction}
     return "⚠️ Something went wrong while processing your request.";
   }
 };
+
+export class GenerationError extends Error {}
+
+/**
+ * A one-off, persona-free completion — for internal document work (e.g.
+ * turning a scraped website into a knowledge base), not a chatbot's reply
+ * to a visitor. Shares askGroq's API keys and key-rotation-on-failure
+ * behavior, but has no company persona, no knowledge-base injection, and
+ * no conversation history: just a system + user prompt pair. Throws
+ * GenerationError if every key fails, rather than returning a placeholder
+ * string — there's no visitor waiting on this, so the caller should know
+ * it didn't work and decide what to tell whoever asked for it.
+ */
+export async function generateCompletion({ systemPrompt, userPrompt, model = "openai/gpt-oss-20b", temperature = 0.2, maxTokens = 3000 }) {
+  if (!userPrompt || !userPrompt.trim()) {
+    throw new GenerationError("Nothing to generate from.");
+  }
+
+  let lastError = null;
+  for (const key of apiKeys) {
+    try {
+      const groq = new Groq({ apiKey: key, timeout: 40000 });
+      const completion = await groq.chat.completions.create({
+        model,
+        temperature,
+        max_tokens: maxTokens,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+      });
+
+      const reply = completion?.choices?.[0]?.message?.content;
+      if (reply && reply.trim()) {
+        return { text: reply.trim(), usage: completion?.usage, model };
+      }
+      lastError = new Error("Empty response from the AI provider.");
+    } catch (err) {
+      lastError = err;
+      console.error("Generation completion error:", err.message);
+    }
+  }
+
+  throw new GenerationError(lastError?.message || "The AI provider is currently unavailable.");
+}

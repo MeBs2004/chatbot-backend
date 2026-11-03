@@ -11,6 +11,8 @@
 // ======================================================
 
 import Chatbot from "../../models/chatbot.model.js";
+import ChatbotMarketingConfig from "../../models/marketing/chatbotMarketingConfig.model.js";
+import { marketingServiceLabel, MARKETING_CAPABILITIES } from "../../config/marketingServices.js";
 
 export const SECTOR_TEMPLATES = ["general", "energy", "education", "digital_marketing"];
 
@@ -50,10 +52,13 @@ a confirmed booking or appointment time yourself.`,
 
   digital_marketing: `This chatbot serves a DIGITAL MARKETING company/agency or a marketing team.
 You may explain marketing concepts and interpret calculator results in plain language, but you must NEVER
-perform ROI/ROAS/CPC/CPM/CTR/conversion-rate/CPL/budget calculations yourself or invent numbers — all of
-those are computed by the built-in, deterministic Marketing Calculator in this chat window. Direct the
-visitor to use it, and only discuss/explain numbers they've actually gotten from it. Always describe
-calculator output as an estimate, never a guarantee of campaign performance.`,
+perform ROI/ROAS/CPC/CPM/CTR/CPL/CPA/CAC/conversion-rate/engagement-rate/budget calculations yourself or
+invent numbers — all of those, including the combined "Marketing ROI / Performance Analysis" view, are
+computed by the built-in, deterministic Marketing Calculator in this chat window. Direct the visitor to use
+it, and only discuss/explain numbers they've actually gotten from it. When explaining a Performance Analysis
+result, you may reference the benchmark labels the calculator itself returned, but never invent your own
+benchmark or claim a number is good/bad beyond what the tool said. Always describe calculator output as an
+estimate, never a guarantee of campaign performance.`,
 };
 
 export const getSectorInstruction = (template) => SECTOR_INSTRUCTIONS[template] || "";
@@ -70,7 +75,43 @@ export const getSectorInstructionForChatbot = async (chatbotId) => {
   if (!chatbotId) return "";
   try {
     const chatbot = await Chatbot.findById(chatbotId).select("template").lean();
-    return getSectorInstruction(chatbot?.template || "general");
+    const template = chatbot?.template || "general";
+    const base = getSectorInstruction(template);
+    if (template !== "digital_marketing") return base;
+
+    // Dynamic, per-chatbot context: which capabilities this specific
+    // company actually enabled, so the AI never offers something the
+    // company switched off, and its business profile so advice is
+    // specific rather than generic — only from a PUBLISHED config,
+    // same "draft never affects live behavior" rule as Energy/Education.
+    const config = await ChatbotMarketingConfig.findOne({ chatbotId, status: "PUBLISHED" }).lean();
+    if (!config) return base;
+
+    const enabledCapKeys = new Set(config.enabledCapabilityKeys || []);
+    const enabledCaps = MARKETING_CAPABILITIES.filter((c) => enabledCapKeys.has(c.key));
+    const disabledCaps = MARKETING_CAPABILITIES.filter((c) => !enabledCapKeys.has(c.key));
+    const services = (config.enabledServiceKeys || []).map(marketingServiceLabel);
+    const p = config.businessProfile || {};
+
+    const profileLines = [
+      p.businessName && `Business: ${p.businessName}${p.businessType ? ` (${p.businessType})` : ""}`,
+      p.description && `About: ${p.description}`,
+      p.targetAudience && `Target audience: ${p.targetAudience}`,
+      p.industriesServed && `Industries served: ${p.industriesServed}`,
+      p.businessGoals && `Business goals: ${p.businessGoals}`,
+      p.location && `Location: ${p.location}`,
+      p.website && `Website: ${p.website}`,
+    ].filter(Boolean);
+
+    return `${base}
+
+BUSINESS CONTEXT FOR THIS COMPANY (use this to make advice specific, never generic):
+${profileLines.length ? profileLines.join("\n") : "No business profile details provided yet."}
+${services.length ? `Services this company offers: ${services.join(", ")}` : ""}
+
+ENABLED CAPABILITIES — only offer/perform these for this chatbot:
+${enabledCaps.length ? enabledCaps.map((c) => `- ${c.label}: ${c.description}`).join("\n") : "None enabled yet."}
+${disabledCaps.length ? `\nDO NOT offer or perform these — they are turned OFF for this company: ${disabledCaps.map((c) => c.label).join(", ")}.` : ""}`;
   } catch {
     return "";
   }
