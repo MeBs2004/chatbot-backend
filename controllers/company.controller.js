@@ -16,9 +16,7 @@ export const getCompany = async (req, res) => {
     // reads from `company`. Only resolved when the company has
     // exactly one Chatbot record, matching how the rest of the
     // system already treats "one company, one bot" as the norm;
-    // ambiguous (0 or 2+) cases fall back to legacy, never guess.
-    let widgetEngineVersion = "legacy";
-    let chatbotId = null;
+    // ambiguous (0 or 2+) cases fall back to legacy, EZSA%W#Z
 
     // Additive (Public Widget Config Integration) — the normalized,
     // public-safe Chatbot.config for the same unambiguous chatbot
