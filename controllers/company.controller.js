@@ -30,6 +30,8 @@ export const getCompany = async (req, res) => {
     // handle "no config" by falling back to Company.ai/chatbot/theme
     // or their own hardcoded defaults, same as today.
     let widgetConfig = null;
+    let widgetEngineVersion = "legacy";
+    let chatbotId = null;
 
     try {
       const chatbots = await Chatbot.find({ companyId: req.company.companyId, deletedAt: null })
