@@ -105,9 +105,14 @@ export const changePlan = async (req, res) => {
     // Section 11 — a plan change must never IMPLY payment was
     // collected. FREE (monthlyPrice 0) can always be switched to
     // immediately, no provider needed. Anything else requires a real
-    // payment provider, which isn't configured here.
+    // payment provider, which isn't configured here — UNLESS the
+    // requester is SUPER_ADMIN, who can grant/comp any plan to any
+    // company without going through checkout (the platform owner
+    // manually assigning a plan, not a customer self-service payment
+    // bypass — a COMPANY_ADMIN still hits the block below).
+    const isSuperAdminOverride = req.adminUser.role === "SUPER_ADMIN";
     const isDowngradeToFree = targetPlan.monthlyPrice === 0;
-    if (!isDowngradeToFree) {
+    if (!isDowngradeToFree && !isSuperAdminOverride) {
       return res.status(402).json({
         success: false,
         code: "PAYMENT_PROVIDER_NOT_CONFIGURED",
@@ -128,7 +133,7 @@ export const changePlan = async (req, res) => {
       resource: "BillingAccount",
       resourceId: account._id,
       companyId,
-      metadata: { from: previousPlanId, to: planId },
+      metadata: { from: previousPlanId, to: planId, superAdminOverride: isSuperAdminOverride && !isDowngradeToFree },
     });
 
     return res.status(200).json({ success: true, account: redactAccount(account) });

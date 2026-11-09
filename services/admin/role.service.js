@@ -7,6 +7,7 @@ import {
 } from "./permissions.service.js";
 import { getCompanyRole } from "./access.service.js";
 import { logAction } from "./audit.service.js";
+import { hasFeature } from "../billing/plan.service.js";
 import { disconnectUserSockets, emitDomainEvent } from "../realtime/io.js";
 import { EVENTS } from "../realtime/events.js";
 
@@ -46,6 +47,12 @@ async function assertCompanyAdminAuthority(requester, companyId) {
   const companyRole = await getCompanyRole(requester, companyId);
   if (companyRole !== "COMPANY_ADMIN") {
     throw new RoleError("You don't have permission to manage roles for this company.", 403);
+  }
+  // Custom Roles & Permissions is an Enterprise-plan feature — a
+  // COMPANY_ADMIN on a lower plan still can't reach this, even though
+  // they'd otherwise have the authority. SUPER_ADMIN already returned above.
+  if (!(await hasFeature(companyId, "roles_permissions"))) {
+    throw new RoleError("Roles & Permissions is available on the Enterprise plan.", 402, "PLAN_FEATURE_LOCKED");
   }
 }
 

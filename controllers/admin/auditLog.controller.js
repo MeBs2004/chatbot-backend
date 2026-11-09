@@ -1,6 +1,7 @@
 import AuditLog from "../../models/auditLog.model.js";
 import AdminUser from "../../models/adminUser.model.js";
 import UserCompanyAccess from "../../models/userCompanyAccess.model.js";
+import { hasFeature } from "../../services/billing/plan.service.js";
 
 export const listAuditLogs = async (req, res) => {
   try {
@@ -29,13 +30,25 @@ export const listAuditLogs = async (req, res) => {
       })
         .select("companyId")
         .lean();
-      const allowedCompanyIds = adminRows.map((r) => r.companyId);
+      const candidateCompanyIds = adminRows.map((r) => r.companyId);
+
+      // Audit Logs is an Enterprise-plan feature — a Company Admin
+      // only sees logs for companies whose plan actually includes it
+      // (they may administer several companies on different plans).
+      const entitlementChecks = await Promise.all(
+        candidateCompanyIds.map((id) => hasFeature(id, "audit_logs"))
+      );
+      const allowedCompanyIds = candidateCompanyIds.filter((_, i) => entitlementChecks[i]);
 
       if (companyId) {
         if (!allowedCompanyIds.includes(companyId)) {
-          return res.status(403).json({
+          const wasCandidate = candidateCompanyIds.includes(companyId);
+          return res.status(wasCandidate ? 402 : 403).json({
             success: false,
-            message: "You don't have permission to access this resource.",
+            code: wasCandidate ? "PLAN_FEATURE_LOCKED" : undefined,
+            message: wasCandidate
+              ? "Audit Logs is available on the Enterprise plan."
+              : "You don't have permission to access this resource.",
           });
         }
         filter.companyId = companyId;

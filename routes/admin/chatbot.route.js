@@ -1,6 +1,7 @@
 import express from "express";
 
 import adminAuthMiddleware from "../../middleware/adminAuth.middleware.js";
+import { requireFeatureForChatbotRoute } from "../../services/billing/featureGate.js";
 import {
   listChatbots,
   getChatbotDetail,
@@ -175,16 +176,18 @@ router.post("/", createChatbot);
 router.patch("/:id", updateChatbot);
 router.patch("/:id/config", updateChatbotConfig);
 router.delete("/:id", deleteChatbot);
-router.post("/:id/access", assignChatbotAccess);
-router.delete("/:id/access/:userId", removeChatbotAccessForUser);
+const requireAccessAssignment = requireFeatureForChatbotRoute("chatbot_access_assignment");
+router.post("/:id/access", requireAccessAssignment, assignChatbotAccess);
+router.delete("/:id/access/:userId", requireAccessAssignment, removeChatbotAccessForUser);
 
 // Bot Builder (Phase 6)
-router.get("/:id/flow", getFlow);
-router.put("/:id/flow", saveFlowDraft);
-router.post("/:id/flow/validate", validateFlowDraft);
-router.post("/:id/flow/publish", publishFlow);
-router.get("/:id/flow/versions", listFlowVersions);
-router.post("/:id/flow/rollback", rollbackFlow);
+const requireBotBuilder = requireFeatureForChatbotRoute("bot_builder");
+router.get("/:id/flow", requireBotBuilder, getFlow);
+router.put("/:id/flow", requireBotBuilder, saveFlowDraft);
+router.post("/:id/flow/validate", requireBotBuilder, validateFlowDraft);
+router.post("/:id/flow/publish", requireBotBuilder, publishFlow);
+router.get("/:id/flow/versions", requireBotBuilder, listFlowVersions);
+router.post("/:id/flow/rollback", requireBotBuilder, rollbackFlow);
 
 // AI Settings + Knowledge Base (Phase 7)
 router.get("/:id/ai-settings", getAiSettings);
