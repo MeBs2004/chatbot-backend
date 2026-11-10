@@ -32,6 +32,14 @@ function getTransport() {
       port,
       secure: port === 465,
       auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+      // Some hosts (e.g. Render) block or silently drop outbound SMTP
+      // connections — without these, a blocked connection hangs the
+      // whole request forever instead of failing like any other
+      // network error. 15s is generous for TLS handshake + auth over
+      // a normal connection, well short of callers' own 60s timeout.
+      connectionTimeout: 15000,
+      greetingTimeout: 15000,
+      socketTimeout: 15000,
     });
   }
   return transport;
