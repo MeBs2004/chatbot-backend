@@ -32,11 +32,17 @@ function getTransport() {
       port,
       secure: port === 465,
       auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-      // Some hosts (e.g. Render) block or silently drop outbound SMTP
-      // connections — without these, a blocked connection hangs the
-      // whole request forever instead of failing like any other
-      // network error. 15s is generous for TLS handshake + auth over
-      // a normal connection, well short of callers' own 60s timeout.
+      // Render resolves smtp.gmail.com's AAAA (IPv6) record but can't
+      // route outbound IPv6 traffic, so the connection fails with
+      // ENETUNREACH on an IPv6 address before it ever reaches Gmail.
+      // Forcing IPv4 here is the fix — Gmail's SMTP works fine over
+      // IPv4, this just stops Node from preferring the unreachable
+      // IPv6 address.
+      family: 4,
+      // Without these, a stuck/blocked connection hangs the whole
+      // request forever instead of failing like any other network
+      // error. 15s is generous for TLS handshake + auth over a normal
+      // connection, well short of callers' own 60s timeout.
       connectionTimeout: 15000,
       greetingTimeout: 15000,
       socketTimeout: 15000,
