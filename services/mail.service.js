@@ -1,4 +1,6 @@
 import fs from "node:fs";
+import dns from "node:dns";
+import net from "node:net";
 import nodemailer from "nodemailer";
 
 // ======================================================
@@ -17,44 +19,63 @@ const isTest = process.env.NODE_ENV === "test" || process.env.NODE_TEST_CONTEXT;
 /** Messages "sent" while SMTP isn't configured outside production (tests read this). */
 export const outbox = [];
 
-let transport = null;
-
 export function isMailConfigured() {
   return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
 }
 
-function getTransport() {
+// Nodemailer (9.x) resolves both the A and AAAA records for the SMTP
+// host and then picks ONE AT RANDOM to connect to (see
+// node_modules/nodemailer/lib/shared/index.js's formatDNSValue) — it
+// does NOT honor a `family` transport option at all for that choice.
+// On hosts without real outbound IPv6 routing (Render, and others)
+// that random pick regularly lands on an IPv6 address and the
+// connection fails with ENETUNREACH. The fix is to resolve the
+// hostname to an IPv4 address ourselves and hand nodemailer that
+// literal IP as `host` — `net.isIP(host)` short-circuits its own DNS
+// resolution entirely once `host` is already an IP, so there is
+// nothing left for it to randomly mis-pick. `servername` is set
+// separately so TLS certificate validation (SNI) still checks against
+// the real hostname rather than the IP.
+async function resolveIPv4(hostname) {
+  if (net.isIP(hostname)) return hostname;
+  const addresses = await dns.promises.resolve4(hostname);
+  if (!addresses.length) throw new Error(`No IPv4 address found for ${hostname}`);
+  return addresses[Math.floor(Math.random() * addresses.length)];
+}
+
+/** Built fresh per send — a DNS lookup is cheap and keeps this correct
+ * even if the provider's IPv4 address pool changes while the process
+ * stays up for days between deploys. */
+async function getTransport() {
   if (!isMailConfigured()) return null;
-  if (!transport) {
-    const port = Number(process.env.SMTP_PORT) || 587;
-    transport = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port,
-      secure: port === 465,
-      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-      // Render resolves smtp.gmail.com's AAAA (IPv6) record but can't
-      // route outbound IPv6 traffic, so the connection fails with
-      // ENETUNREACH on an IPv6 address before it ever reaches Gmail.
-      // Forcing IPv4 here is the fix — Gmail's SMTP works fine over
-      // IPv4, this just stops Node from preferring the unreachable
-      // IPv6 address.
-      family: 4,
-      // Without these, a stuck/blocked connection hangs the whole
-      // request forever instead of failing like any other network
-      // error. 15s is generous for TLS handshake + auth over a normal
-      // connection, well short of callers' own 60s timeout.
-      connectionTimeout: 15000,
-      greetingTimeout: 15000,
-      socketTimeout: 15000,
-    });
+  const hostname = process.env.SMTP_HOST;
+  const port = Number(process.env.SMTP_PORT) || 587;
+  let host = hostname;
+  try {
+    host = await resolveIPv4(hostname);
+  } catch (error) {
+    console.warn(`[mail] could not resolve an IPv4 address for ${hostname}, falling back to hostname: ${error.message}`);
   }
-  return transport;
+  return nodemailer.createTransport({
+    host,
+    servername: hostname,
+    port,
+    secure: port === 465,
+    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+    // Without these, a stuck/blocked connection hangs the whole
+    // request forever instead of failing like any other network
+    // error. 15s is generous for TLS handshake + auth over a normal
+    // connection, well short of callers' own 60s timeout.
+    connectionTimeout: 15000,
+    greetingTimeout: 15000,
+    socketTimeout: 15000,
+  });
 }
 
 /** Sends one email. Never throws — returns { sent, reason }. */
 export async function sendMail({ to, subject, text, html }) {
   const from = process.env.MAIL_FROM || process.env.SMTP_USER || "Nuformly <no-reply@nuformly.local>";
-  const t = getTransport();
+  const t = await getTransport();
   if (!t) {
     if (process.env.NODE_ENV === "production" && !isTest) {
       console.warn(`[mail] SMTP is not configured — email to ${to} ("${subject}") was not sent.`);
